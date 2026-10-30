@@ -17,7 +17,7 @@ To run the built app without Node.js or a local server, open `dist/index.html` d
 
 VS Code's **Terminal → Run Task** menu has **Run workbench**, **Build workbench**, and **Test workbench**; **Ctrl+Shift+B** builds. These tasks use your installed Node.js and npm. After installing Node.js or Git, restart VS Code so its terminals and tasks receive the updated PATH. In Windows PowerShell, use `npm.cmd` in place of `npm` if an execution policy blocks `npm.ps1`; the VS Code tasks already do this.
 
-Keep `package-lock.json` in Git so `npm ci` installs the same dependency versions on another machine. Dependencies, build output, and local runtime downloads are ignored by Git.
+Keep `package-lock.json` in Git so `npm ci` installs the same dependency versions on another machine. The built standalone website is included in `dist/index.html`; rebuild it with `npm run build` after source changes. Dependencies and local runtime downloads are ignored by Git.
 
 ## Use
 
