@@ -1,0 +1,12 @@
+node_modules/
+dist/
+node.exe
+npm.tgz
+package/
+*.tsbuildinfo
+.vite/
+coverage/
+*.log
+.env
+.env.*
+!.env.example

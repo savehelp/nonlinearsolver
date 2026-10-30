@@ -1,0 +1,44 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build workbench",
+			"type": "process",
+			"command": "npm",
+			"windows": {
+				"command": "${env:ComSpec}",
+				"args": ["/d", "/c", "npm.cmd", "run", "build"]
+			},
+			"args": ["run", "build"],
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": [],
+			"group": { "kind": "build", "isDefault": true }
+		},
+		{
+			"label": "Run workbench",
+			"type": "process",
+			"command": "npm",
+			"windows": {
+				"command": "${env:ComSpec}",
+				"args": ["/d", "/c", "npm.cmd", "run", "dev"]
+			},
+			"args": ["run", "dev"],
+			"options": { "cwd": "${workspaceFolder}" },
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Test workbench",
+			"type": "process",
+			"command": "npm",
+			"windows": {
+				"command": "${env:ComSpec}",
+				"args": ["/d", "/c", "npm.cmd", "test"]
+			},
+			"args": ["test"],
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
+}
