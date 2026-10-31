@@ -1,10 +1,11 @@
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-export type SettingsPane = 'diagnostics' | 'constants' | 'sweep' | 'solver' | 'graph';
+export type SettingsPane = 'diagnostics' | 'constants' | 'elements' | 'sweep' | 'solver' | 'graph';
 const sections: { id: SettingsPane; label: string; title: string }[] = [
   { id: 'diagnostics', label: 'Diagnostics', title: 'Diagnostics' },
   { id: 'constants', label: 'Constants', title: 'Constants' },
+  { id: 'elements', label: 'Elements', title: 'Element library' },
   { id: 'sweep', label: 'Sweep', title: 'Sweep settings' },
   { id: 'solver', label: 'Solver', title: 'Solver settings' },
   { id: 'graph', label: 'Graph', title: 'Graph settings' },

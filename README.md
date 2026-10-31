@@ -1,6 +1,6 @@
 # Node — nonlinear equation workbench
 
-A browser-based nonlinear algebraic equation solver built with TypeScript, React, Vite, and Plotly. Equations are the source of truth: there are no required transistor parameters, circuit objects, schematic, server, or Python runtime. All numerical work runs in a cancellable Web Worker. The app opens an RC low-pass filter example in complex mode when no saved workspace is present. **New equation workspace** starts with `y = a*x + b;`, `set_time_axis x`, and `plot y`.
+A browser-based nonlinear algebraic equation solver built with TypeScript, React, Vite, and Plotly. Equations are the source of truth, with optional reusable element templates loaded from JSON. There are no required transistor parameters, schematic, server, or Python runtime. All numerical work runs in a cancellable Web Worker. The app opens an RC low-pass filter example in complex mode when no saved workspace is present. **New equation workspace** starts with `y = a*x + b;`, `set_time_axis x`, and `plot y`.
 
 ## Run
 
@@ -23,7 +23,7 @@ Keep `package-lock.json` in Git so `npm ci` installs the same dependency version
 
 1. The default RC low-pass example solves the resistor/capacitor node equation in complex mode, then plots transfer gain in dB and phase in degrees against frequency from 0 to 10 kHz. With R = 1 kΩ and C = 100 nF, the cutoff is about 1.59 kHz. Gain and phase share the Y scale; their legend names include their units. Saved workspaces restore on startup; the settings gear's examples menu also loads the RC, NMOS, CMOS inverter, and multi-root cubic examples. The workspace uses the full viewport, with equations on the left, the graph on the right, and parameter sliders below.
 2. End every equation with `;`. Equations may span multiple lines, and multiple equations may share a line. Equalities become left-minus-right residuals; a plain expression is interpreted as a zero residual. `#` starts a comment through the end of the physical line. A tab without semicolons also accepts newline-separated equations.
-3. Every editor tab accepts unknowns, parameters, equations, plot commands, and validity checks in any mixture. All tabs share one namespace and solve together. Use **+** to add a tab, the pencil or a double-click to rename it, and the trash button to remove it. The top controls are ordered add, rename, delete. New tabs organize the same model; switching or renaming them starts no solve. Unknown declarations are optional for names used in equations: undeclared names are inferred as unknowns with an initial guess of **0**. Use `unknown name guess` when you want to supply a guess, or `unknown name` to declare one explicitly. Plot commands alone do not introduce unknowns. Declare an intended fixed input with `parameter name value`; parameters remain fixed while solving. For parameter sliders and sweeps, enter `parameter name value step min max`, omitting trailing options you do not need. Guesses and parameter values default to **0**. The parameter options are always **value / sweep start, step, slider minimum, slider maximum**, in that order. A parameter without the complete step and bounds has a numeric control without a slider. Numeric options accept expressions such as `9e-9`, `9*10^(-9)`, or `(2 * pi)`; wrap expressions containing spaces in parentheses. Comments start with `#`. Incomplete or invalid declarations stay visible and show an error; errors identify their tab and line, and the solver pauses until the source is valid. Bulk paste, Enter, and Backspace use ordinary text editing.
+3. Every editor tab accepts unknowns, parameters, equations, plot commands, and validity checks in any mixture. All tabs share one namespace and solve together. Use **+** to add a tab, the pencil or a double-click to rename it, and the trash button to remove it. The top controls are ordered add, rename, delete. New tabs organize the same model; switching or renaming them starts no solve. Unknown declarations are optional for names used in equations: undeclared names are inferred as unknowns with an initial guess of **0**. Use `unknown name guess` when you want to supply a guess, or `unknown name` to declare one explicitly. Plot commands alone do not introduce ordinary unknowns; a qualified element member activates its declared model. Declare an intended fixed input with `parameter name value`; parameters remain fixed while solving. For parameter sliders and sweeps, enter `parameter name value step min max`, omitting trailing options you do not need. Guesses and parameter values default to **0**. The parameter options are always **value / sweep start, step, slider minimum, slider maximum**, in that order. A parameter without the complete step and bounds has a numeric control without a slider. Numeric options accept expressions such as `9e-9`, `9*10^(-9)`, or `(2 * pi)`; wrap expressions containing spaces in parentheses. Comments start with `#`. Incomplete or invalid declarations stay visible and show an error; errors identify their tab and line, and the solver pauses until the source is valid. Bulk paste, Enter, and Backspace use ordinary text editing.
 4. Add trailing `sweep` after all four parameter options to select a sweep, for example `parameter VDD 5 1 0 10 sweep`. Choose the main sweep and shared traversal parameter once with `set_time_axis VDD`. It determines the order in which curve points connect and supplies the default X coordinate; it can represent resistance, voltage, or another parameter rather than physical time. The selected parameter must already be marked `sweep`. Write `plot output` to graph output against VDD, or `plot current voltage` to graph current against voltage while following the same VDD order. The first expression always supplies Y; an optional second expression supplies X. Every curve can choose its own coordinates. These expressions accept unknowns, parameters, computed quantities, scaling, and functions, such as `plot current*1e3`, `plot max(current, 0)`, or `plot sin(t) cos(t)`. Wrap each expression containing spaces in parentheses in the two-expression form, such as `plot (current * 1000) (voltage * 1000)`. A comma-separated list such as `plot output, current` still adds separate Y curves against the selected traversal parameter. Up to 16 curves share one X scale and one Y scale, even when units differ; axis and curve labels identify their coordinates. Missing selections or conflicting `set_time_axis` commands report the tab and line. Other marked parameters supply slice dimensions with independent sliders. Commands end at a newline or semicolon, and may appear before declarations or equations in another tab. The declaration's range, step, and starting value determine all sampled values and point/slice counts; **Diagnostics → Sweep plan** shows every selected axis and the combined workload. Parameter sweeps use additive step sizes.
 5. Auto-run applies to all sweeps: editing valid declarations, equations, or settings recomputes after a short debounce and terminates superseded workers. Disable Auto-run for manual Run control. There is no automatic history cache. Each combination of slice parameter values contains a full main sweep, and the graph still shows the same X and Y expressions. Each run first selects the combination of configured starting values. Sliders show current numeric values; the graph area identifies all selected values. Edit the first parameter option to change its configured sweep start. Moving any slice slider changes only that parameter's selected coordinate, starts no solve, and never changes the configured starting values. Sliders use sample indices so every position has a corresponding value; no interpolation is performed. Failed combinations retain their own error and display no curve.
 6. Drag the thin divider between equations and graph to change their widths; drag the line above Parameters to change the bottom tray's height. Panels sit flush, separated by subtle outlines. Double-click either divider to collapse its panel; click the visible rail to reopen it at its previous size. Panel sizes and collapsed states are remembered locally. Focused dividers accept arrow keys (Shift for larger steps), Home/End, and Enter or Space to collapse. Open **Settings → Graph settings**. **Autoscale** starts enabled and fits the visible data. Turn it off to enter **Minimum X**, **Maximum X**, **Minimum Y**, and **Maximum Y**. All four bounds must be finite, with each minimum less than its maximum. These view controls update immediately without recomputing the sweep, and graph view preferences are remembered locally. Scroll the graph to zoom and drag to pan. Panning or zooming switches to manual bounds; enable **Autoscale** again to fit the plotted data. Plotly's toolbar includes reset and SVG export. Click a point for solution values; fixed inputs, residuals, and the Jacobian are in expandable sections. **Diagnostics** groups model counts, sweep planning and limits, grid progress, and result quality. Current inputs and results from previous settings are labeled separately.
@@ -68,6 +68,60 @@ plot y
 ```
 
 `plot y x` draws `(cos(t), sin(t))`; `plot y` draws `(t, sin(t))`. Both follow increasing `t`, preserving the circle's loop even when its displayed X coordinate reverses direction. The name "time axis" describes this ordering; the solver still performs algebraic sweeps rather than transient simulation.
+
+### Element libraries
+
+Open the **Elements** tab in Settings to inspect the available element types, load an element JSON library, or download definitions to edit and share. The supplied [NMOSFET library](./elements/nmosfet.json) contains the device equations and default parameters as data. Imported types with the same name replace that type for the current workspace. Saving or exporting a workspace includes its loaded definitions, so recipients can use custom elements without importing a second file.
+
+Declare an instance with `element Type instance`. Its type must be available in the element library. A declaration alone adds no equations or unknowns. Referencing one of its members in math or a plot activates its complete model once. Instances and connections can appear in any source tab, in any order. Removing the final member use removes that instance's generated model.
+
+For example, this complete model sweeps the gate voltage of a resistor-loaded NMOS. Start a new equation workspace, put this model in one source tab and clear the remaining tabs, and keep **Complex mode** disabled:
+
+```text
+element NMOSFET M1
+parameter vin 0 .1 0 3.3 sweep
+parameter Vdd 3.3
+parameter R1 2200
+parameter M1.VTH .7
+
+M1.g = vin;
+M1.s = 0;
+M1.d = Vdd - M1.id*R1;
+M1.d <= Vdd;
+
+set_time_axis vin
+plot M1.d
+plot M1.id*1e3
+```
+
+`M1.g`, `M1.d`, and `M1.s` are the required gate, drain, and source terminals. `M1.id` is drain-to-source current; `M1.vgs` and `M1.vds` are model-defined members. The example's two curves share a Y scale, with current displayed in milliamps. The supplied model describes a forward-biased, three-terminal DC NMOS with nonnegative drain-source voltage; it is a simple square-law model, with no body effect or AC capacitances. Circuit connection and current-balance equations remain explicit. For example, a separate name `ID` refers to this current only after adding `ID = M1.id;`.
+
+Each instance gets its own parameters and internal variables. Override a parameter with `parameter M1.VTH .65`, supply a solver guess with `unknown M1.id .001`, or give an element parameter the ordinary step/range/`sweep` options. Parameter and guess declarations alone do not activate an unused instance. All required terminals of an active instance must appear in external equations. Unknown instances, misspelled members, parameter/unknown kind mismatches, and incompatible real/complex modes produce errors. `=` retains its ordinary simultaneous-equation meaning; source order never changes a terminal's value.
+
+To add another element type, load a JSON file with this shape:
+
+```json
+{
+  "format": "nonlinear-elements",
+  "version": 1,
+  "elements": [
+    {
+      "name": "Gain",
+      "description": "A gain block with one input and a computed output.",
+      "mode": "both",
+      "terminals": ["input"],
+      "parameters": { "gain": { "value": 2 } },
+      "equations": ["output = gain*input"]
+    }
+  ]
+}
+```
+
+After loading it, use `element Gain A1`, connect `A1.input = signal;`, and plot `A1.output` against your selected traversal parameter. Use `parameter A1.gain 3` to replace the default gain. This also works with complex unknowns when Complex mode is enabled; parameters and plotted coordinates still follow the normal real-value rules.
+
+An element definition has a unique `name`, required `terminals`, numeric `parameters`, and mathematical `equations`. `description`, `mode`, and an `unknowns` map of initial guesses are optional. Each parameter has a finite numeric `value`, with optional `step`, `min`, and `max` slider settings. `mode` is `real`, `complex`, or `both`, defaulting to `both`. Equations may include the ordinary validity conditions. Members are terminal names, parameter names, explicit unknowns, and simple assignment targets such as `output`; dependencies must use these local names or built-in mathematical constants. Their instance prefix is supplied automatically. Element equations use the same safe math parser as source equations and cannot contain declarations, plot commands, or JavaScript. Names are simple identifiers inside the JSON; dotted instance names are used in workspace source. Files must be smaller than 1 MB and are validated before any definitions are applied.
+
+The library is embedded in the standalone HTML, so the supplied element works offline. Loading custom element JSON also works directly from `dist/index.html`, with no server or network fetch.
 
 ### Transition lines
 
@@ -163,7 +217,7 @@ The supplied [resistor-noise regression workspace](./src/core/fixtures/resistor-
 
 ## Workspace JSON
 
-Saved and exported workspaces use version 2. The ordered `tabs` array stores each tab's stable `id`, `title`, and exact `source` text, so equations, unknowns, parameters, comments, whitespace, and unfinished drafts stay in their original tabs and positions. `settings` contains solver options and the saved sweep configuration. `set_time_axis` in tab source chooses the main traversal parameter, `plot` commands determine each curve's displayed coordinates, and `plot_x_transition` / `plot_y_transition` commands define graph reference lines. `settings.sweep.parameter` retains the saved sweep selection. Parameter ranges, starts, steps, and slice selections come from the declarations rather than duplicate JSON tables.
+Saved and exported workspaces use version 2. The ordered `tabs` array stores each tab's stable `id`, `title`, and exact `source` text, so equations, unknowns, parameters, elements, comments, whitespace, and unfinished drafts stay in their original tabs and positions. Loaded element definitions are included with the workspace. `settings` contains solver options and the saved sweep configuration. `set_time_axis` in tab source chooses the main traversal parameter, `plot` commands determine each curve's displayed coordinates, and `plot_x_transition` / `plot_y_transition` commands define graph reference lines. `settings.sweep.parameter` retains the saved sweep selection. Parameter ranges, starts, steps, and slice selections come from the declarations rather than duplicate JSON tables.
 
 ```json
 {

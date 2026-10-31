@@ -103,7 +103,7 @@ export function prepareComplex(config: Configuration, parameter?: number): Syste
   const variables = definitions.filter(variable => used.has(variable.name));
   const names = new Set<string>();
   for (const variable of variables) {
-    if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(variable.name) || reserved.has(variable.name)) throw new Error(`Invalid or reserved variable name “${variable.name}”.`);
+    if (!/^[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?$/.test(variable.name) || reserved.has(variable.name)) throw new Error(`Invalid or reserved variable name “${variable.name}”.`);
     if (names.has(variable.name)) throw new Error(`Variable “${variable.name}” is defined twice.`);
     names.add(variable.name);
     if (!Number.isFinite(variable.value) || (variable.min !== undefined && !Number.isFinite(variable.min)) || (variable.max !== undefined && !Number.isFinite(variable.max))) throw new Error(`Values and bounds for ${variable.name} must be finite real numbers.`);

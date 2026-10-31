@@ -14,7 +14,7 @@ export function assignmentPlan(equations: string[], unknowns: string[], derived:
     const equalities = [...equation.matchAll(/(?<![<>=!])=(?!=)/g)];
     if (equalities.length !== 1) return null;
     const at = equalities[0].index!, name = equation.slice(0, at).trim();
-    if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(name) || !remaining.delete(name)) return null;
+    if (!/^[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?$/.test(name) || !remaining.delete(name)) return null;
     const source = equation.slice(at + 1);
     definitions.push({ name, source, expression: compile(source) });
   }

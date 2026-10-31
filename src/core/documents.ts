@@ -4,6 +4,7 @@ import { equationProgram } from './equations';
 import { inferVariables } from './inference';
 import { plotArguments, plotCurves, yExpressions } from './axes';
 import { evaluateTransitionLines, MAX_TRANSITION_LINES, TransitionExpressionError } from './transitions';
+import { expandElements, type ElementDeclaration, type ElementUsage } from './elements';
 import type { Configuration, EditorDocument, PlotTransition, Variable } from './types';
 
 export const MAX_EDITOR_DOCUMENTS = 32;
@@ -39,9 +40,9 @@ export function ensureDocuments(config: Configuration): EditorDocument[] {
   return config.documents;
 }
 
-type StatementKind = DeclarationKind | 'plot' | 'set_time_axis' | 'plot_x_transition' | 'plot_y_transition';
+type StatementKind = DeclarationKind | 'element' | 'plot' | 'set_time_axis' | 'plot_x_transition' | 'plot_y_transition';
 interface Statement { start: number; end: number; line: number; clean: string; kind?: StatementKind }
-const statementKind = (clean: string): StatementKind | undefined => /^(unknown|parameter|plot_x_transition|plot_y_transition|plot|set_time_axis)(?:\s|$)/.exec(clean)?.[1] as StatementKind | undefined;
+const statementKind = (clean: string): StatementKind | undefined => /^(unknown|parameter|element|plot_x_transition|plot_y_transition|plot|set_time_axis)(?:\s|$)/.exec(clean)?.[1] as StatementKind | undefined;
 const plotting = (kind?: StatementKind) => kind === 'plot' || kind === 'set_time_axis' || kind === 'plot_x_transition' || kind === 'plot_y_transition';
 
 /** Declarations and plot commands end at top-level newlines or semicolons. Math uses the existing
@@ -90,6 +91,7 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
   validateDocuments(documents);
   const unknowns: Variable[] = [], parameters: Variable[] = [], swept: string[] = [], equations: string[] = [];
   const declarations = new Map<string, { document: EditorDocument; line: number }>();
+  const elements: ElementDeclaration[] = [], usages: ElementUsage[] = [];
   const display: { part: Statement; document: EditorDocument }[] = [];
   for (const document of documents) {
     let parts: Statement[];
@@ -100,7 +102,14 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
     }
     for (const part of parts) {
       try {
-        if (plotting(part.kind)) display.push({ part, document });
+        if (plotting(part.kind)) {
+          display.push({ part, document });
+          usages.push({ source: part.clean, kind: 'display', location: describe(document, part.line, '') });
+        } else if (part.kind === 'element') {
+          const match = /^element\s+([A-Za-z_][A-Za-z_0-9]*)\s+([A-Za-z_][A-Za-z_0-9]*)$/.exec(part.clean);
+          if (!match) throw new Error('Use element Type Instance, for example element NMOSFET M1.');
+          elements.push({ type: match[1], name: match[2], location: describe(document, part.line, '') });
+        }
         else if (part.kind === 'unknown' || part.kind === 'parameter') {
           const parsed = parseDeclarations(part.clean, part.kind), variable = parsed.variables[0];
           const previous = declarations.get(variable.name);
@@ -111,10 +120,15 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
           const program = equationProgram(part.clean + ';');
           program.equations.forEach(residual); program.conditions.forEach(compile);
           equations.push(part.clean + ';');
+          usages.push({ source: part.clean, kind: 'math', location: describe(document, part.line, '') });
         }
       } catch (error) { throw new Error(describe(document, part.line, (error as Error).message)); }
     }
   }
+  const expanded = expandElements(config, elements, usages, [...unknowns, ...parameters]);
+  equations.push(...expanded.equations);
+  unknowns.push(...expanded.variables.filter(variable => variable.kind === 'unknown'));
+  parameters.push(...expanded.variables.filter(variable => variable.kind === 'parameter'));
   if (unknowns.length + parameters.length > 100) throw new Error('Use at most 100 unknowns and parameters across all tabs.');
   const math = equations.join('\n');
   if (math.length > 50_000) throw new Error('Equations across all tabs exceed 50,000 characters.');
@@ -124,7 +138,7 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
   // The time selection controls the traced sweep, independently of each
   // curve's displayed X expression and of declaration order.
   const timeCommand = display.find(({ part }) => part.kind === 'set_time_axis');
-  const timeName = timeCommand && /^set_time_axis\s+([A-Za-z_][A-Za-z_0-9]*)$/.exec(timeCommand.part.clean)?.[1];
+  const timeName = timeCommand && /^set_time_axis\s+([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?)$/.exec(timeCommand.part.clean)?.[1];
   if (next.sweep.mode === 'free' && timeName && swept.includes(timeName)) next.sweep.parameter = timeName;
   applyDeclarations(next, 'unknown', { variables: unknowns, swept: [] });
   try { applyDeclarations(next, 'parameter', { variables: parameters, swept }); }
@@ -146,7 +160,7 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
   for (const { part, document } of display) {
     try {
       if (part.kind === 'set_time_axis') {
-        const match = /^set_time_axis\s+([A-Za-z_][A-Za-z_0-9]*)$/.exec(part.clean);
+        const match = /^set_time_axis\s+([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?)$/.exec(part.clean);
         if (!match) throw new Error('Use set_time_axis parameter, for example set_time_axis x.');
         const parameter = match[1];
         if (selected && parameter !== selected.parameter) throw new Error(`The time axis is already set to “${selected.parameter}” in “${selected.document.title}”, line ${selected.line}. Use one traversal parameter across all tabs.`);
@@ -214,6 +228,7 @@ const keys = ['value', 'step', 'min', 'max'] as const;
 export function syncDocumentVariables(config: Configuration, previous?: Configuration): void {
   if (!config.documents) return;
   const byName = new Map(config.variables.map(variable => [variable.name, variable]));
+  const represented = new Set<string>();
   for (const document of config.documents) {
     let parts: Statement[];
     try { parts = statements(document.source); } catch { continue; }
@@ -222,6 +237,7 @@ export function syncDocumentVariables(config: Configuration, previous?: Configur
       if (part.kind !== 'unknown' && part.kind !== 'parameter') continue;
       let parsed: Variable;
       try { parsed = parseDeclarations(part.clean, part.kind).variables[0]; } catch { continue; }
+      represented.add(parsed.name);
       const variable = byName.get(parsed.name);
       if (!variable || variable.kind !== part.kind) continue;
       const before = previous?.variables.find(candidate => candidate.name === variable.name);
@@ -247,5 +263,16 @@ export function syncDocumentVariables(config: Configuration, previous?: Configur
       }
     }
     for (const edit of edits.sort((left, right) => right.start - left.start || right.end - left.end)) document.source = document.source.slice(0, edit.start) + edit.text + document.source.slice(edit.end);
+  }
+  // Device defaults are generated from the library. Editing one in the input
+  // tray creates a source override so the value survives recompilation/saving.
+  for (const variable of config.variables) {
+    if (!variable.name.includes('.') || variable.kind === 'derived' || represented.has(variable.name)) continue;
+    const before = previous?.variables.find(candidate => candidate.name === variable.name);
+    if (!before || keys.every(key => before[key] === variable[key])) continue;
+    const instance = variable.name.split('.')[0];
+    const document = config.documents.find(document => new RegExp(`\\belement\\s+[A-Za-z_][A-Za-z_0-9]*\\s+${instance}\\b`).test(document.source.replace(/#[^\r\n]*/g, ''))) ?? config.documents[0];
+    const declaration = formatDeclarations({ ...config, variables: [variable] }, variable.kind);
+    document.source += `${document.source.endsWith('\n') ? '' : '\n'}${declaration}\n`;
   }
 }

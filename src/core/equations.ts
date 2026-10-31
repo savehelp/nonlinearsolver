@@ -43,5 +43,5 @@ export function equationAssignment(source: string): { name: string; source: stri
   const equalities = [...source.matchAll(/(?<![<>=!])=(?!=)/g)];
   if (equalities.length !== 1) return null;
   const at = equalities[0].index!, name = source.slice(0, at).trim();
-  return /^[A-Za-z_][A-Za-z_0-9]*$/.test(name) ? { name, source: source.slice(at + 1).trim() } : null;
+  return /^[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?$/.test(name) ? { name, source: source.slice(at + 1).trim() } : null;
 }

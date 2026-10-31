@@ -1,3 +1,5 @@
+import type { ElementDefinition } from './elements';
+
 export type Scope = Record<string, number>;
 export interface Complex { re: number; im: number }
 export type ComplexScope = Record<string, number | Complex>;
@@ -9,6 +11,8 @@ export interface PlotCurve { x: string; y: string }
 export interface PlotTransition { axis: 'x' | 'y'; expression: string }
 export interface Configuration {
   name: string; description: string; equations: string; variables: Variable[]; constraints: string; regions: Region[];
+  /** Loaded element templates override bundled definitions by type name. */
+  elementDefinitions?: ElementDefinition[];
   /** Source documents share one global model; engine fields are its projection. */
   documents?: EditorDocument[];
   sweep: { parameter: string; min: number; max: number; points: number; logarithmic: boolean; mode: 'free' | 'constrained'; release: string; step?: number; startAt?: number; secondary?: SecondarySweep; additional?: SecondarySweep[] };

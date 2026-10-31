@@ -101,6 +101,8 @@ input[aria-invalid="true"] { border-color: #f07575; }
 .settings-nav button { flex: 1; border: 1px solid transparent; border-radius: 4px; padding: 8px 6px; background: transparent; color: #91a8b4; font-size: 11px; }
 .settings-nav button[aria-pressed="true"] { color: var(--mint); background: #1b3336; border-color: #335b56; }
 .settings-content { padding: 0; }
+.element-library-actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 14px 0; }
+.element-library-actions .button { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; }
 .settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 16px; }
 .settings-fields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: #9db3bf; font-size: 11px; }
 .settings-fields input, .settings-fields select { width: 100%; min-width: 0; font: 11px var(--mono); }

@@ -24,7 +24,7 @@ export function prepare(config: Configuration, parameter?: number): System {
   const definitions = inferVariables(config, program);
   const names = new Set<string>();
   for (const v of definitions.filter(v => used.has(v.name))) {
-    if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(v.name) || ['pi', 'e', 'true', 'false'].includes(v.name)) throw new Error(`Invalid or reserved variable name “${v.name}”.`);
+    if (!/^[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?$/.test(v.name) || ['pi', 'e', 'true', 'false'].includes(v.name)) throw new Error(`Invalid or reserved variable name “${v.name}”.`);
     if (names.has(v.name)) throw new Error(`Variable “${v.name}” is defined twice.`); names.add(v.name);
     if (!Number.isFinite(v.value) || (v.min !== undefined && !Number.isFinite(v.min)) || (v.max !== undefined && !Number.isFinite(v.max))) throw new Error(`Values and bounds for ${v.name} must be finite.`);
     if (v.min !== undefined && v.max !== undefined && v.min >= v.max) throw new Error(`${v.name}: minimum must be less than maximum.`);

@@ -28,7 +28,8 @@ export function compile(source: string): Expression {
   const tokens: string[] = []; let offset = 0;
   while (offset < source.length) {
     if (/\s/.test(source[offset])) { offset++; continue; }
-    const match = /^(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?[pnumkKMGT]?|[A-Za-z_][A-Za-z_0-9]*|<=|>=|==|!=|&&|\|\||\*\*|[+\-*/^(),<>!?:])/.exec(source.slice(offset));
+    // A qualified name is one scalar symbol, never an object/property lookup.
+    const match = /^(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?[pnumkKMGT]?|[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?|<=|>=|==|!=|&&|\|\||\*\*|[+\-*/^(),<>!?:])/.exec(source.slice(offset));
     if (!match) throw new Error(`Unexpected character “${source[offset]}” in “${source}”.`);
     tokens.push(match[0]); offset += match[0].length;
   }

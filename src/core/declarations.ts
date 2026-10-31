@@ -7,7 +7,7 @@ import { parameterSampleCount, validateParameterSampleCount } from './sweepPlan'
 export type DeclarationKind = 'unknown' | 'parameter';
 export interface ParsedDeclarations { variables: Variable[]; swept: string[] }
 
-const identifier = /^[A-Za-z_][A-Za-z_0-9]*$/;
+const identifier = /^[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?$/;
 const reserved = new Set(['pi', 'e', 'true', 'false']);
 
 /** Whitespace and commas separate options outside parenthesized expressions. */

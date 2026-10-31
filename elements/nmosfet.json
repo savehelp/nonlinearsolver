@@ -1,0 +1,24 @@
+{
+  "format": "nonlinear-elements",
+  "version": 1,
+  "elements": [
+    {
+      "name": "NMOSFET",
+      "description": "Three-terminal forward DC square-law NMOS model. id is positive from drain to source. Source must be connected explicitly; body effects are not modeled. Valid for vds >= 0.",
+      "mode": "real",
+      "terminals": ["g", "d", "s"],
+      "parameters": {
+        "VTH": { "value": 0.7 },
+        "K": { "value": 0.001 },
+        "LAMBDA": { "value": 0.02 }
+      },
+      "unknowns": { "id": 0.0005 },
+      "equations": [
+        "vgs = g - s",
+        "vds = d - s",
+        "id = if(vgs <= VTH, 0, if(vds < vgs - VTH, K * ((vgs - VTH) * vds - vds^2 / 2) * (1 + LAMBDA * vds), K / 2 * (vgs - VTH)^2 * (1 + LAMBDA * vds)))",
+        "vds >= 0"
+      ]
+    }
+  ]
+}

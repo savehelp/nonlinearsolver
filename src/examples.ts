@@ -1,4 +1,5 @@
 import type { Configuration, Variable } from './core/types';
+import { compileDocuments } from './core/documents';
 const parameter = (name: string, value: number, min: number, max: number, step: number): Variable => ({ name, value, min, max, step, kind: 'parameter' });
 // Example guesses are starting points, not physical restrictions on edited equations.
 const unknown = (name: string, value: number): Variable => ({ name, value, kind: 'unknown' });
@@ -15,6 +16,10 @@ export const rcLowPass: Configuration = {
   ] }, regions: [],
 };
 export const defaultWorkspace = rcLowPass;
+export const nmosElementExample: Configuration = compileDocuments({
+  ...base, name: 'NMOS element · resistor load', description: 'A reusable NMOSFET instance from the JSON element library.',
+  equations: '', variables: [], axes: { x: '', y: '' }, regions: [],
+}, [{ id: 'circuit', title: 'Circuit', source: '# Drain current is positive from drain to source.\nparameter vin 0 0.05 0 3.3 sweep\nparameter Vdd 3.3\nparameter R1 2200\n\nelement NMOSFET M1\nM1.g = vin;\nM1.s = 0;\nM1.d = Vdd - M1.id*R1;\n\nset_time_axis vin\nplot M1.d\nplot (M1.id*1000)\n# Override device defaults with parameter M1.VTH 0.65' }]);
 export const examples: Configuration[] = [
   { ...base, name: 'NMOS common source', description: 'A resistor-loaded NMOS, from cutoff to saturation and triode.',
     equations: '# Drain-node KCL\n(VDD - VD) / RD = ID;\n\n# Piecewise square-law model\nID = if(\n  VG <= VTH,\n  0,\n  if(\n    VD < VG - VTH,\n    K * ((VG - VTH) * VD - VD^2 / 2)\n      * (1 + LAMBDA * VD),\n    K / 2 * (VG - VTH)^2\n      * (1 + LAMBDA * VD)\n  )\n);\nVOV = VG - VTH;',
@@ -26,6 +31,7 @@ export const examples: Configuration[] = [
     sweep: { ...base.sweep, parameter: 'VIN' }, axes: { x: 'VIN', y: 'VOUT' }, regions: [] },
   { ...base, name: 'Cubic · multiple roots', description: 'Explore the three real branches of x³ − x = p and their folds.', equations: 'x^3 - x = p;\nx >= -2;\nx <= 2;', variables: [unknown('x', .8), parameter('p', 0, -.6, .6, .005)], sweep: { ...base.sweep, parameter: 'p', min: -.6, max: .6, points: 161 }, axes: { x: 'p', y: 'x' }, regions: [] },
   rcLowPass,
+  nmosElementExample,
 ];
 export const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
