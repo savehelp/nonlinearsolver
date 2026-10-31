@@ -6,7 +6,7 @@ const fmt = (value: number | undefined) => value !== undefined && Number.isFinit
 interface Props {
   config: Configuration;
   parameters: Variable[];
-  update: (index: number, update: Partial<Variable>) => void;
+  update: (index: number, value: number) => void;
   sliceViews: Record<string, { index: number; values: number[] }>;
   slicesAvailable: boolean;
   onSlice: (parameter: string, index: number) => void;
@@ -34,7 +34,7 @@ export default function ParameterSliders({ config, parameters, update, sliceView
       <div className="slider-label"><label htmlFor={hasSlider ? `slider-${index}` : undefined}>{variable.name}</label>
         {swept ? <span className="swept-badge">{variable.name === config.sweep.release ? 'SOLVED' : 'SWEPT'}</span>
           : secondary ? <output className="slice-value" aria-label={`${variable.name} current value`}>{sliceAvailable ? fmt(values[sliceIndex]) : '—'}</output>
-          : <ExpressionInput label={`${variable.name} fixed value`} value={variable.value} onValue={value => { if (value !== undefined) update(index, { value }); }} onValidity={onValidity} onRevert={onRevert} onValid={onValid}/>}
+          : <ExpressionInput label={`${variable.name} fixed value`} value={variable.value} onValue={value => { if (value !== undefined) update(index, value); }} onValidity={onValidity} onRevert={onRevert} onValid={onValid}/>}
       </div>
       {hasSlider && <><input id={`slider-${index}`} aria-label={`${variable.name} ${secondary ? 'slice slider' : 'slider'}`} type="range"
         aria-valuetext={secondary && sliceAvailable ? `${variable.name} = ${fmt(values[sliceIndex])}` : undefined}
@@ -42,7 +42,7 @@ export default function ParameterSliders({ config, parameters, update, sliceView
         step={secondary ? 1 : variable.step ?? 'any'} value={secondary ? sliceIndex : variable.value}
         disabled={swept || (secondary && !sliceAvailable)}
         title={secondary ? 'Select an exact precomputed slice. No additional calculation.' : undefined}
-        onChange={event => secondary ? onSlice(variable.name, Number(event.target.value)) : update(index, { value: Number(event.target.value) })}/>
+        onChange={event => secondary ? onSlice(variable.name, Number(event.target.value)) : update(index, Number(event.target.value))}/>
       <div className="slider-extents"><span>{fmt(lower)}</span><span>{fmt(upper)}</span></div></>}
     </div>;
   })}</div>;

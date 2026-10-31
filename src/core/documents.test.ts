@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { clone, starter, validateImport } from '../examples';
+import { clone, starter } from '../examples';
+import { createWorkspace, loadWorkspace } from './workspace';
 import { compileDocuments, ensureDocuments, syncDocumentVariables, validateDocuments } from './documents';
 import { prepare, solve } from './solver';
 import type { EditorDocument } from './types';
@@ -7,7 +8,7 @@ import type { EditorDocument } from './types';
 const document = (source: string, title = 'Model', id = title): EditorDocument => ({ source, title, id });
 
 describe('mixed editor documents', () => {
-  it('migrates legacy definitions into one shared tab without changing the model', () => {
+  it('creates source tabs for an example without changing the model', () => {
     const config = clone(starter), before = clone(config);
     const documents = ensureDocuments(config);
     expect(documents.map(document => document.title)).toEqual(['Equations', 'Definitions']);
@@ -21,7 +22,7 @@ describe('mixed editor documents', () => {
   });
 
   it('compiles declarations, equations, derived assignments and validity in the same tab', () => {
-    const config = clone(starter), source = '# Entire model\nunknown y 1\nparameter x 2 1 0 4 sweep\nparameter gain (1 + 1)\ny^2 = gain*x;\ntwice = 2*y;\ny >= 0;';
+    const config = clone(starter), source = '# Entire model\nunknown y 1\nparameter x 2 1 0 4 sweep\nparameter gain (1 + 1)\ny^2 = gain*x;\ntwice = 2*y;\ny >= 0;\nset_time_axis x\nplot y';
     const compiled = compileDocuments(config, [document(source)]);
     expect(compiled.variables.map(variable => variable.name)).toEqual(['y', 'x', 'gain']);
     const root = solve(prepare(compiled, 2), [1], compiled.solver);
@@ -34,19 +35,19 @@ describe('mixed editor documents', () => {
     const config = compileDocuments(clone(starter), [
       document('unknown y\nparameter gain 3', 'Inputs'),
       document('parameter x 1 1 0 2 sweep\ny = gain*x;', 'Relationships'),
-      document('output = y + 1;\nvalid output > 0;', 'Outputs'),
+      document('output = y + 1;\nvalid output > 0;\nset_time_axis x\nplot y\nplot output', 'Outputs'),
     ]);
     const root = solve(prepare(config, 2), [], config.solver);
     expect(root.values).toMatchObject({ x: 2, gain: 3, y: 6, output: 7 });
   });
 
   it('preserves multiline math and parenthesized declaration options with comments', () => {
-    const config = compileDocuments(clone(starter), [document('# first line\nunknown y 1; parameter x (1 +\n 1) 1 0 4 sweep;\ny = if(\n x > 0, # active branch\n x*2,\n 0\n);')]);
+    const config = compileDocuments(clone(starter), [document('# first line\nunknown y 1; parameter x (1 +\n 1) 1 0 4 sweep;\ny = if(\n x > 0, # active branch\n x*2,\n 0\n);\nset_time_axis x\nplot y')]);
     expect(solve(prepare(config, 2), [], config.solver).values.y).toBe(4);
     expect(config.variables.find(variable => variable.name === 'x')!.value).toBe(2);
   });
 
-  it('keeps legacy newline-separated math tabs usable', () => {
+  it('keeps newline-separated math tabs usable', () => {
     const config = compileDocuments(clone(starter), [document('unknown y\nparameter x 1 1 0 2 sweep\ny = x\noutput = y*2')]);
     expect(config.equations).toBe('y = x;\noutput = y*2;');
   });
@@ -87,21 +88,21 @@ describe('mixed editor documents', () => {
 describe('document persistence and controls', () => {
   it('imports source tabs as authoritative while preserving their names and formatting', () => {
     const config = clone(starter);
-    config.documents = [document('unknown y\nparameter x 2 1 0 4 sweep\ny = x*3;', 'Custom model', 'stable')];
-    const imported = validateImport(JSON.parse(JSON.stringify(config)));
+    config.documents = [document('unknown y\nparameter x 2 1 0 4 sweep\ny = x*3;\nset_time_axis x\nplot y', 'Custom model', 'stable')];
+    const imported = loadWorkspace(JSON.parse(JSON.stringify(createWorkspace(config))));
     expect(imported.documents).toEqual(config.documents);
     expect(imported.variables.find(variable => variable.name === 'x')!.value).toBe(2);
     expect(solve(prepare(imported, 2), [], imported.solver).values.y).toBe(6);
   });
 
-  it('preserves invalid drafts through import with the accepted model intact', () => {
+  it('preserves invalid drafts through import without restoring stale engine inputs', () => {
     const config = clone(starter);
     config.documents = [document('parameter x (', 'Draft')];
-    const imported = validateImport(JSON.parse(JSON.stringify(config)));
+    const imported = loadWorkspace(JSON.parse(JSON.stringify(createWorkspace(config))));
     expect(imported.documents).toEqual(config.documents);
-    expect(imported.variables).toEqual(config.variables);
+    expect(imported.variables).toEqual([]);
     expect(() => compileDocuments(imported, imported.documents!)).toThrow('“Draft”');
-    expect(() => validateImport({ ...config, documents: [] })).toThrow('editor tabs');
+    expect(() => loadWorkspace({ ...createWorkspace(config), tabs: [] })).toThrow('editor tabs');
   });
 
   it('updates a slider value in place while preserving comments, expressions and organization', () => {

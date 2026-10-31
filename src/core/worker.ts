@@ -2,6 +2,8 @@ import { prepare, sweepSteps } from './solver';
 import { createSweepUpdates, type WorkerRequest, type WorkerResponse } from './sweepStream';
 import { configForCombination, DoubleSweepBudget, DoubleSweepMemoryError, multiSweepPlan, SweepBudget } from './doubleSweep';
 import { sliceSweeps } from './variables';
+import { SampleReuseCache } from './sampleReuse';
+import { DEFAULT_SWEEP_BYTES } from './sweepLimits';
 
 interface Context { id: number; inFlight: boolean; acknowledge?: () => void }
 let active: Context | null = null;
@@ -15,8 +17,8 @@ function tracked(context: Context, message: WorkerResponse): void {
   send(message);
 }
 
-async function doubleSweep(message: Extract<WorkerRequest, { type: 'run' }>, context: Context) {
-  const start = performance.now(), plan = multiSweepPlan(message.config), budget = new DoubleSweepBudget(message.config);
+async function doubleSweep(message: Extract<WorkerRequest, { type: 'run' }>, context: Context, reuse: SampleReuseCache) {
+  const start = performance.now(), plan = multiSweepPlan(message.config), budget = new DoubleSweepBudget(message.config, DEFAULT_SWEEP_BYTES - reuse.bytes);
   // Reject shared configuration problems once before attempting every slice.
   prepare(configForCombination(message.config, plan.valuesAt(plan.startIndex)), message.config.sweep.startAt ?? message.config.sweep.min);
   for (const sliceIndex of plan.order) {
@@ -24,7 +26,8 @@ async function doubleSweep(message: Extract<WorkerRequest, { type: 'run' }>, con
     const values = plan.valuesAt(sliceIndex), value = values[plan.dimensions[0].parameter], update = createSweepUpdates();
     budget.startSlice();
     try {
-      const steps = sweepSteps(configForCombination(message.config, values), 200, (_result, sample) => budget.observeSample(sample));
+      const config = configForCombination(message.config, values);
+      const steps = sweepSteps(config, 200, (_result, sample) => budget.observeSample(sample), reuse.forConfig(config));
       let step = steps.next();
       while (!step.done) {
         if (active !== context) return;
@@ -61,9 +64,11 @@ async function run(message: Extract<WorkerRequest, { type: 'run' }>) {
   active = context;
   const update = createSweepUpdates();
   try {
-    if (sliceSweeps(message.config).length) { await doubleSweep(message, context); return; }
-    const budget = new SweepBudget(message.config); budget.startSlice();
-    const steps = sweepSteps(message.config, 200, (_result, sample) => budget.observeSample(sample));
+    const reuse = new SampleReuseCache(message.config, message.reuse);
+    delete message.reuse;
+    if (sliceSweeps(message.config).length) { await doubleSweep(message, context, reuse); return; }
+    const budget = new SweepBudget(message.config, DEFAULT_SWEEP_BYTES - reuse.bytes); budget.startSlice();
+    const steps = sweepSteps(message.config, 200, (_result, sample) => budget.observeSample(sample), reuse.forConfig(message.config));
     let step = steps.next();
     while (!step.done) {
       if (active !== context) return;

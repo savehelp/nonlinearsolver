@@ -42,9 +42,9 @@ describe('equations and validity in one editor', () => {
     expect(result.branches.flatMap(branch => branch.points).every(point => point.ys[0] === 2 * point.parameter ** 2)).toBe(true);
   });
 
-  it('reports missing inputs rather than inventing right-hand-side declarations', () => {
+  it('counts undeclared inputs as unknowns and preserves reserved-name errors', () => {
     const config = model('y = missing + p;');
-    expect(() => prepare(config)).toThrow('not defined');
+    expect(() => prepare(config)).toThrow('Underdetermined');
     config.equations = 'pi = p;'; config.axes.y = 'pi';
     expect(() => prepare(config)).toThrow('reserved');
   });

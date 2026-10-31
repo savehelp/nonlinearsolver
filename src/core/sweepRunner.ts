@@ -1,5 +1,6 @@
 import type { Configuration, SweepResult } from './types';
 import { mergeSweepUpdate, type WorkerRequest, type WorkerResponse } from './sweepStream';
+import { prepareSweepReuse, type SweepReuse } from './sampleReuse';
 
 export interface SweepWorker {
   onmessage: ((event: MessageEvent<WorkerResponse>) => void) | null;
@@ -29,7 +30,7 @@ export class SweepRunner {
     this.releaseWorker();
   }
 
-  run(config: Configuration, delay = 220): void {
+  run(config: Configuration, delay = 220, reuse?: SweepReuse): void {
     this.cancel();
     const id = this.generation;
     this.publish({ type: 'pending' });
@@ -76,7 +77,8 @@ export class SweepRunner {
           if (!complete && id === this.generation) worker.postMessage({ type: 'ack', id });
         };
         worker.onerror = event => fail(event.message || 'The calculation worker failed.');
-        worker.postMessage({ type: 'run', id, config });
+        const samples = reuse && prepareSweepReuse(config, reuse);
+        worker.postMessage({ type: 'run', id, config, ...(samples ? { reuse: samples } : {}) });
       } catch (error) { fail(error instanceof Error ? error.message : 'The calculation worker failed.'); }
     }, delay);
   }

@@ -54,7 +54,7 @@ export function parseDeclarations(source: string, kind: DeclarationKind): Parsed
       names.add(name);
       const sweep = tokens.at(-1) === 'sweep';
       if (sweep) tokens.pop();
-      if (kind === 'unknown' && sweep) throw new Error('Use sweep on a parameter declaration. Configure an imposed unknown in Sweep settings.');
+      if (kind === 'unknown' && sweep) throw new Error('Use sweep on a parameter declaration, then select it with set_time_axis.');
       const maximum = kind === 'unknown' ? 1 : 4;
       if (tokens.length > maximum) throw new Error(kind === 'unknown'
         ? 'Use unknown name [initial guess].'

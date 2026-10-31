@@ -1,179 +1,29 @@
 {
-  "constraints": "",
-  "solver": {
-    "tolerance": 1e-9,
-    "iterations": 100,
-    "starts": 12
-  },
-  "sweep": {
-    "parameter": "R1",
-    "min": 0,
-    "max": 100,
-    "points": 101,
-    "logarithmic": false,
-    "mode": "free",
-    "release": "Rab",
-    "secondary": {
-      "parameter": "R2",
-      "min": 0,
-      "max": 100,
-      "points": 11,
-      "logarithmic": false,
-      "step": 10,
-      "startAt": 50
-    },
-    "step": 1,
-    "startAt": 50,
-    "additional": [
-      {
-        "parameter": "R3",
-        "min": 0,
-        "max": 100,
-        "points": 11,
-        "logarithmic": false,
-        "step": 10,
-        "startAt": 50
-      },
-      {
-        "parameter": "R4",
-        "min": 0,
-        "max": 100,
-        "points": 11,
-        "logarithmic": false,
-        "step": 10,
-        "startAt": 50
-      }
-    ]
-  },
+  "format": "nonlinear-workbench",
+  "version": 2,
   "name": "Equation workspace",
   "description": "",
-  "equations": "Ra = R1 + R2;\nRb = (R3*R4)/(R3+R4);\nReq = (Ra*Rb)/(Ra+Rb);\n\nf = 1/(2*pi*Req*C);\n\nRba = Rb/(Ra+Rb);\nRab = Ra/(Ra+Rb);\n\nSab = (pi/2)*f*(Rab)^2*4*k*T;\nSba = (pi/2)*f*(Rba)^2*4*k*T;\n\nS1 = Sba*R1;\nS2 = Sba*R2;\nS3 = Sab*(Rb^2/R3);\nS4 = Sab*(Rb^2/R4);\n\nStot = S1 + S2 + S3 + S4;\n",
-  "variables": [
+  "tabs": [
     {
-      "name": "Ra",
-      "value": 1,
-      "kind": "unknown"
+      "id": "equations",
+      "title": "Equations",
+      "source": "Ra = R1 + R2;\nRb = (R3*R4)/(R3+R4);\nReq = (Ra*Rb)/(Ra+Rb);\n\nf = 1/(2*pi*Req*C);\n\nRba = Rb/(Ra+Rb);\nRab = Ra/(Ra+Rb);\n\nSab = (pi/2)*f*(Rab)^2*4*k*T;\nSba = (pi/2)*f*(Rba)^2*4*k*T;\n\nS1 = Sba*R1;\nS2 = Sba*R2;\nS3 = Sab*(Rb^2/R3);\nS4 = Sab*(Rb^2/R4);\n\nStot = S1 + S2 + S3 + S4;\n\nset_time_axis R1\nplot S1\nplot S2\nplot S3\nplot S4\nplot Stot\n"
     },
     {
-      "name": "R1",
-      "kind": "parameter",
-      "value": 50,
-      "min": 0,
-      "max": 100,
-      "step": 1
-    },
-    {
-      "name": "R2",
-      "kind": "parameter",
-      "value": 50,
-      "min": 0,
-      "max": 100,
-      "step": 10
-    },
-    {
-      "name": "k",
-      "kind": "parameter",
-      "value": 1.38e-23,
-      "min": -5,
-      "max": 5,
-      "step": 0.1
-    },
-    {
-      "name": "T",
-      "kind": "parameter",
-      "value": 300,
-      "min": -5,
-      "max": 5,
-      "step": 0.1
-    },
-    {
-      "name": "C",
-      "kind": "parameter",
-      "value": 1e-8,
-      "min": -5,
-      "max": 5,
-      "step": 0.1
-    },
-    {
-      "name": "R3",
-      "kind": "parameter",
-      "value": 50,
-      "min": 0,
-      "max": 100,
-      "step": 10
-    },
-    {
-      "name": "R4",
-      "kind": "parameter",
-      "value": 50,
-      "min": 0,
-      "max": 100,
-      "step": 10
-    },
-    {
-      "name": "Rb",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "Req",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "f",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "Rba",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "Rab",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "S1",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "S2",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "S3",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "S4",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "Sab",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "Sba",
-      "kind": "unknown",
-      "value": 1
-    },
-    {
-      "name": "Stot",
-      "kind": "unknown",
-      "value": 1
+      "id": "definitions",
+      "title": "Definitions",
+      "source": "unknown Ra 1\nparameter R1 50 1 0 100 sweep\nparameter R2 50 10 0 100 sweep\nparameter k 1.38e-23\nparameter T 300\nparameter C 1e-8\nparameter R3 50 10 0 100 sweep\nparameter R4 50 10 0 100 sweep\nunknown Rb 1\nunknown Req 1\nunknown f 1\nunknown Rba 1\nunknown Rab 1\nunknown S1 1\nunknown S2 1\nunknown S3 1\nunknown S4 1\nunknown Sab 1\nunknown Sba 1\nunknown Stot 1"
     }
   ],
-  "axes": {
-    "x": "R1",
-    "y": "S1,S2,S3,S4,Stot"
-  },
-  "regions": []
+  "settings": {
+    "solver": {
+      "tolerance": 1e-9,
+      "iterations": 100,
+      "starts": 12
+    },
+    "sweep": {
+      "mode": "free",
+      "parameter": "R1"
+    }
+  }
 }

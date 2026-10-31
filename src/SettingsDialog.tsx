@@ -1,12 +1,13 @@
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-export type SettingsPane = 'diagnostics' | 'sweep' | 'solver' | 'graph';
+export type SettingsPane = 'diagnostics' | 'constants' | 'sweep' | 'solver' | 'graph';
 const sections: { id: SettingsPane; label: string; title: string }[] = [
   { id: 'diagnostics', label: 'Diagnostics', title: 'Diagnostics' },
+  { id: 'constants', label: 'Constants', title: 'Constants' },
   { id: 'sweep', label: 'Sweep', title: 'Sweep settings' },
   { id: 'solver', label: 'Solver', title: 'Solver settings' },
-  { id: 'graph', label: 'Graph', title: 'Graph scale' },
+  { id: 'graph', label: 'Graph', title: 'Graph settings' },
 ];
 
 export default function SettingsDialog({ pane, onPane, onClose, children }: {

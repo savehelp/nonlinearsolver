@@ -1,23 +1,5 @@
 import { compile, lines } from './expression';
-import type { Configuration, Scope, Variable } from './types';
-
-/** Move old unknown bounds into editable validity conditions without changing parameter slider ranges. */
-export function migrateUnknownBounds(config: Configuration): boolean {
-  const additions: string[] = [];
-  for (const variable of config.variables) {
-    if (variable.kind !== 'unknown') continue;
-    for (const [key, operator] of [['min', '>='], ['max', '<=']] as const) {
-      const value = variable[key];
-      if (value === undefined) continue;
-      if (!Number.isFinite(value)) continue; // Keep malformed legacy data visible to validation.
-      additions.push(`${variable.name} ${operator} ${value}`);
-      delete variable[key];
-    }
-  }
-  if (!additions.length) return false;
-  config.constraints = [config.constraints.trimEnd(), ...additions].filter(Boolean).join('\n');
-  return true;
-}
+import type { Scope, Variable } from './types';
 
 /** Recognize safe, inclusive interval conditions; everything else is still checked as validity. */
 export function applyValidityBounds(unknowns: Variable[], source: string, fixed: Scope): void {

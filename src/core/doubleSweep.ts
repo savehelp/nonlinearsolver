@@ -6,7 +6,6 @@ import { sliceSweeps } from './variables';
 import { formatSampleCount, gridLimitMessage, sampleCountExceeds, sampleProduct } from './sweepCounts';
 
 export { MAX_DOUBLE_SWEEP_SAMPLES, MAX_SECONDARY_SLICES } from './sweepLimits';
-export const DEFAULT_DOUBLE_SWEEP_BYTES = DEFAULT_SWEEP_BYTES;
 
 export interface MultiSweepPlan {
   dimensions: { parameter: string; plan: SweepPlan }[];
@@ -148,12 +147,6 @@ function* centeredCombinations(lengths: number[], strides: number[], startIndice
   }
 }
 
-/** Values stay sorted for the selector; order controls which slice is solved first. */
-export function secondaryPlan(config: Configuration): SweepPlan {
-  if (!sliceSweeps(config).length) return { values: [], order: [], startIndex: 0 };
-  return multiSweepPlan(config).dimensions[0].plan;
-}
-
 function validateLegacySecondary(secondary: NonNullable<Configuration['sweep']['secondary']>): void {
   if (![secondary.min, secondary.max, secondary.points].every(Number.isFinite)
     || secondary.min >= secondary.max || !Number.isInteger(secondary.points)
@@ -179,14 +172,6 @@ function legacySecondaryPlan(secondary: NonNullable<Configuration['sweep']['seco
   return { values, order: values.map((_, index) => index), startIndex: 0 };
 }
 
-/** Each sorted value selects a full 1D sweep without changing the plotted axes. */
-export function secondaryValues(config: Configuration): number[] { return secondaryPlan(config).values; }
-
-export function configForSlice(config: Configuration, value: number): Configuration {
-  const parameter = sliceSweeps(config)[0]?.parameter;
-  return configForCombination(config, parameter ? { [parameter]: value } : {});
-}
-
 export function configForCombination(config: Configuration, values: Scope): Configuration {
   const selected = new Set(sliceSweeps(config).map(sweep => sweep.parameter));
   const { secondary: _secondary, additional: _additional, ...sweep } = config.sweep;
@@ -196,7 +181,7 @@ export function configForCombination(config: Configuration, values: Scope): Conf
 
 /** Conservative estimate, including object/property/array overhead and strings.
  * Stops immediately when the remaining budget is exceeded. */
-function retainedBytes(value: unknown, limit: number): number {
+export function retainedBytes(value: unknown, limit: number): number {
   if (typeof value === 'string') return 64 + value.length * 2;
   if (value === null || typeof value !== 'object') return 16;
   let bytes = Array.isArray(value) ? 64 + value.length * 16 : 96;
@@ -230,7 +215,7 @@ export class DoubleSweepBudget {
   private failures = 0;
   private readonly sliceOverhead: number;
 
-  constructor(config: Configuration, private readonly maxBytes = DEFAULT_DOUBLE_SWEEP_BYTES) {
+  constructor(config: Configuration, private readonly maxBytes = DEFAULT_SWEEP_BYTES) {
     this.sliceOverhead = 4096 + retainedBytes({ equations: [config.equations], unknowns: config.variables.map(variable => variable.name) }, maxBytes);
     this.add(retainedBytes(config, maxBytes));
     const plannedCount = (value: number | undefined, limit: number) => Number.isFinite(value) ? Math.max(0, Math.min(limit, Math.floor(value!))) : 0;

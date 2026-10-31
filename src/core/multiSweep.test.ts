@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clone, starter } from '../examples';
-import { configForCombination, DEFAULT_DOUBLE_SWEEP_BYTES, DoubleSweepBudget, DoubleSweepMemoryError, multiSweepPlan } from './doubleSweep';
+import { configForCombination, DoubleSweepBudget, DoubleSweepMemoryError, multiSweepPlan } from './doubleSweep';
+import { DEFAULT_SWEEP_BYTES } from './sweepLimits';
 import { normalizeSweep } from './sweepPlan';
 import { sweep } from './solver';
 import { mergeSweepUpdate, type WorkerRequest, type WorkerResponse } from './sweepStream';
@@ -82,7 +83,7 @@ describe('multiple additional sweep parameters', () => {
 
   it('reserves all selectors and the combination frontier within the 1,000 MiB budget', () => {
     const config = configuration(), plan = multiSweepPlan(config), budget = new DoubleSweepBudget(config);
-    expect(DEFAULT_DOUBLE_SWEEP_BYTES).toBe(1000 * 1024 * 1024);
+    expect(DEFAULT_SWEEP_BYTES).toBe(1000 * 1024 * 1024);
     expect(budget.bytes).toBeGreaterThan(192 * plan.totalSlices + 64 * 12);
     expect(() => new DoubleSweepBudget(config, 192 * plan.totalSlices)).toThrow(DoubleSweepMemoryError);
     budget.startSlice(); budget.observe(sweep(configForCombination(config, plan.valuesAt(plan.startIndex))));

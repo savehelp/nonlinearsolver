@@ -1,6 +1,7 @@
-import { equationAssignment, equationProgram } from './equations';
+import { equationProgram } from './equations';
 import { lines } from './expression';
 import { prepare } from './solver';
+import { inferVariables } from './inference';
 import type { Configuration } from './types';
 
 export interface ModelDiagnostics {
@@ -35,21 +36,17 @@ export function modelDiagnostics(config: Configuration): ModelDiagnostics {
   };
   try {
     const program = equationProgram(config.equations);
-    const declared = new Set(config.variables.map(variable => variable.name));
-    const inferred = new Set<string>();
-    for (const equation of program.equations) {
-      const assignment = equationAssignment(equation);
-      if (assignment && !declared.has(assignment.name) && !['pi', 'e', 'true', 'false'].includes(assignment.name)) inferred.add(assignment.name);
-    }
-    summary.inferredVariables = inferred.size;
     summary.equations = program.equations.length;
     summary.conditions = program.conditions.length + lines(config.constraints).length;
+    summary.inferredVariables = 0;
+    summary.inferredVariables = inferVariables(config, program).length - config.variables.length;
     // Source assignments can introduce more names than the declaration limit.
     // Keep opening diagnostics cheap; large numerical systems stay in the worker.
-    if (summary.declaredUnknowns + inferred.size > 100) {
+    if (summary.declaredUnknowns + summary.inferredVariables > 100) {
       summary.preparationSkipped = true;
       return summary;
     }
+    if (config.axes.transitions?.length && (!config.axes.x.trim() || !config.axes.y.trim())) return summary;
     const selected = config.variables.find(variable => variable.name === config.sweep.parameter);
     const system = prepare(config, config.sweep.startAt ?? (config.sweep.mode === 'constrained' ? config.sweep.min : selected?.value));
     summary.activeUnknowns = (system.allUnknowns ?? system.unknowns).length;

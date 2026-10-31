@@ -3,7 +3,7 @@ import { clone, starter } from '../examples';
 import { parameterSampleCount, parameterSweepPlan, normalizeSweep } from './sweepPlan';
 import { formatSampleCount, gridLimitMessage, sampleProduct } from './sweepCounts';
 import { multiSweepPlan } from './doubleSweep';
-import { toggleParameterSweep } from './variables';
+import { setSliceSweeps } from './variables';
 import type { Variable } from './types';
 
 describe('requested sweep counts above allocation limits', () => {
@@ -28,7 +28,7 @@ describe('requested sweep counts above allocation limits', () => {
   });
 
   it('reports the complete grid and every axis rather than the first overflowing prefix', () => {
-    const config = clone(starter); toggleParameterSweep(config, 'a', true); toggleParameterSweep(config, 'b', true);
+    const config = clone(starter); setSliceSweeps(config, ['a', 'b'].map(parameter => ({ parameter, min: -5, max: 5, points: 11, logarithmic: false })));
     let message = '';
     try { multiSweepPlan(normalizeSweep(config)); } catch (error) { message = (error as Error).message; }
     expect(message).toContain('requests 1,030,301 samples');

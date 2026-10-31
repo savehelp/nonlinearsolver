@@ -84,7 +84,7 @@ describe('incremental sweeps', () => {
     expect(step.done).toBe(true);
     expect(step.value.completed).toBe(3);
     config.equations = 'y = missing;';
-    expect(() => sweepSteps(config, 0).next()).toThrow('not defined');
+    expect(() => sweepSteps(config, 0).next()).toThrow('Underdetermined');
   });
 
   it('bounds unacknowledged worker progress and sends the remaining final delta', async () => {
@@ -135,7 +135,7 @@ describe('incremental sweeps', () => {
       const invalid = clone(config); invalid.equations = 'y = missing;';
       host.onmessage!({ data: { type: 'run', id: 7, config: invalid } } as MessageEvent<WorkerRequest>);
       await vi.runAllTimersAsync();
-      expect(messages).toEqual([{ type: 'error', id: 7, error: expect.stringContaining('not defined') }]);
+      expect(messages).toEqual([{ type: 'error', id: 7, error: expect.stringContaining('Underdetermined') }]);
       expect(vi.getTimerCount()).toBe(0);
 
       messages.length = 0;

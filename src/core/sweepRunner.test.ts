@@ -3,6 +3,8 @@ import { clone, starter } from '../examples';
 import { SweepRunner, type SweepEvent, type SweepWorker } from './sweepRunner';
 import type { SweepResult } from './types';
 import type { WorkerRequest, WorkerResponse } from './sweepStream';
+import { sweep } from './solver';
+import { normalizeSweep } from './sweepPlan';
 
 class FakeWorker implements SweepWorker {
   onmessage: SweepWorker['onmessage'] = null;
@@ -78,6 +80,21 @@ describe('sweep lifecycle', () => {
     expect(complete.result.branches[0].points.map(point => point.index)).toEqual([0, 1]);
     expect(preview.result.branches[0].points).toHaveLength(1);
     expect(workers[0].terminate).toHaveBeenCalledOnce();
+  });
+
+  it('passes only matching successful sample seeds to the next worker on resampling', () => {
+    const { runner, workers } = setup(), initial = clone(starter);
+    initial.axes = { x: 'x', y: '0' };
+    Object.assign(initial.variables.find(variable => variable.name === 'x')!, { min: 0, max: 4, value: 0, step: 1 });
+    const before = normalizeSweep(initial), result = sweep(before), next = clone(before);
+    next.variables.find(variable => variable.name === 'x')!.step = 2;
+    runner.run(normalizeSweep(next), 0, { config: before, slices: [{ values: {}, result }] });
+    vi.advanceTimersByTime(0);
+    const request = workers[0].postMessage.mock.calls[0][0];
+    if (request.type !== 'run') throw new Error('Expected a run request');
+    expect(request.reuse?.samples.map(sample => sample.coordinates)).toEqual([[0], [2], [4]]);
+    expect(request.reuse!.bytes).toBeLessThanOrEqual(32 * 1024 * 1024);
+    runner.cancel();
   });
 
   it('keeps double-sweep slices separate and the worker alive until the entire grid finishes', () => {

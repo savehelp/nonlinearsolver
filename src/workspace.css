@@ -12,11 +12,9 @@ main { width: 100%; max-width: none; height: 100%; padding: 0; margin: 0; displa
 .plot-actions { align-items: center; gap: 8px; }
 .plot-actions > .check-label { margin-right: 3px; }
 .compact-run.button.primary { flex: none; padding: 6px 10px; font-size: 10px; }
-.plot-config { margin: 0 16px; padding: 8px 0; flex-shrink: 0; }
-.plot-config input { width: 110px; }
+.graph-status { margin: 0 16px; padding: 3px 0 6px; min-height: 27px; flex-shrink: 0; }
 .chart-wrap { min-height: 0; overflow: hidden; }
 .plot { min-height: 0; }
-.plot-legend { padding: 8px 16px; min-height: 30px; flex-shrink: 0; }
 .parameters-panel { grid-column: 1 / -1; grid-row: 2; max-height: none; min-height: 0; display: flex; flex-direction: column; }
 .parameters-panel .panel-heading { height: 36px; min-height: 36px; padding: 0 16px; }
 .parameters-panel .text-button { font-size: 10px; margin-right: 8px; }
@@ -34,10 +32,9 @@ main { width: 100%; max-width: none; height: 100%; padding: 0; margin: 0; displa
 .settings-examples option { background: #19272f; }
 .menu-divider { height: 1px; background: #30444e; margin: 5px 4px; }
 .settings-modal { width: 700px; }
-.notice, .error { margin: 0; flex-shrink: 0; padding: 9px 12px; }
+.notice { margin: 0; flex-shrink: 0; padding: 9px 12px; }
 .plot-panel:fullscreen { padding: 0; }
 .plot-panel:fullscreen .chart-wrap { min-height: 0; }
-
 .workspace-grid > .panel { border: 0; border-radius: 0; }
 .workspace-grid > .editor-panel { border-right: 1px solid #29363e; }
 .workspace-grid > .parameters-panel { border-top: 1px solid #29363e; }
@@ -54,15 +51,13 @@ main { width: 100%; max-width: none; height: 100%; padding: 0; margin: 0; displa
 .resizing-editor, .resizing-editor * { cursor: col-resize !important; }
 .resizing-parameters, .resizing-parameters * { cursor: row-resize !important; }
 .sliders-grid { flex: 1; min-height: 0; align-content: start; }
-.notice, .error { border-radius: 0; }
+.notice { border-radius: 0; }
 .calculation-status.partial { color: #e8bb7d; }
 .calculation-status.partial .dot { background: #e8bb7d; }
 .calculation-status.failed .dot { background: #f07575; animation: none; }
 .calculation-status.failed { color: #f07575; min-width: 26px; min-height: 24px; justify-content: center; border-radius: 4px; }
-.plot-config .calculation-status { display: inline-flex; background: none; border: 0; padding: 3px 0 3px 6px; }
+.graph-status .calculation-status { display: inline-flex; background: none; border: 0; padding: 3px 0 3px 6px; }
 .calculation-status:hover { text-decoration: underline; }
-.plot-config .y-axis-control { flex: 1; max-width: 440px; min-width: 0; }
-.plot-config .y-axis-control input { flex: 1; width: 100%; min-width: 70px; }
 .plot-heading > .plot-actions { flex: 1; min-width: 0; justify-content: flex-end; }
 .diagnostic-error { border: 1px solid #795044; background: #392923; color: #e9bbaa; border-radius: 5px; margin-bottom: 18px; padding: 12px; font-size: 11px; }
 .diagnostic-error p { margin: 6px 0 0; color: inherit; font-size: 11px; overflow-wrap: anywhere; }
@@ -95,17 +90,14 @@ input[aria-invalid="true"] { border-color: #f07575; }
 .source-delete-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 8px 16px; color: #edb5a7; border-top: 1px solid #493c37; background: #2b2421; font-size: 10px; line-height: 1.6; }
 .source-delete-confirm span { flex: 1; min-width: 140px; overflow-wrap: anywhere; }
 .workspace-grid.editor-collapsed > .editor-panel, .workspace-grid.parameters-collapsed > .parameters-panel { display: none; }
-.workspace-grid.editor-collapsed > .divider-editor, .workspace-grid.parameters-collapsed > .divider-parameters { display: none; }
-.panel-collapse-toggle { position: absolute; z-index: 21; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #334a55; border-radius: 4px; background: #192a32; color: #9db9c5; opacity: .85; }
-.panel-collapse-toggle:hover, .panel-collapse-toggle:focus-visible { opacity: 1; color: var(--mint); border-color: #4d8f80; }
-.toggle-editor { left: calc(var(--editor-size) - 12px); top: calc((100% - var(--parameter-size)) / 2 - 16px); width: 24px; height: 32px; }
-.toggle-parameters { left: 50%; top: calc(100% - var(--parameter-size) - 12px); transform: translateX(-50%); width: 34px; height: 24px; }
-.editor-collapsed > .toggle-editor { left: 0; top: 0; width: 26px; height: calc(100% - var(--parameter-size)); flex-direction: column; justify-content: flex-start; gap: 9px; padding-top: 12px; border-radius: 0; border-width: 0 1px 0 0; opacity: 1; }
-.editor-collapsed > .toggle-editor span { writing-mode: vertical-rl; font-size: 9px; letter-spacing: .5px; }
-.parameters-collapsed > .toggle-parameters { left: 0; top: calc(100% - var(--parameter-size)); transform: none; width: 100%; height: 26px; gap: 6px; border-radius: 0; border-width: 1px 0 0; opacity: 1; font-size: 9px; }
+.panel-expand-rail { position: absolute; z-index: 21; display: flex; align-items: center; justify-content: center; padding: 0; border: solid #334a55; border-radius: 0; background: #192a32; color: #9db9c5; font-size: 9px; }
+.panel-expand-rail:hover, .panel-expand-rail:focus-visible { color: var(--mint); border-color: #4d8f80; }
+.expand-editor { left: 0; top: 0; width: 26px; height: calc(100% - var(--parameter-size)); flex-direction: column; justify-content: flex-start; padding-top: 12px; border-width: 0 1px 0 0; }
+.expand-editor span { writing-mode: vertical-rl; letter-spacing: .5px; }
+.expand-parameters { left: 0; top: calc(100% - var(--parameter-size)); width: 100%; height: 26px; border-width: 1px 0 0; }
 .parameter-controls { border: 0; margin: 0; padding: 0; min-inline-size: 0; min-height: 0; overflow: auto; }
 .parameters-panel .panel-heading .text-button { margin-left: auto; }
-.settings-nav { display: flex; gap: 4px; padding-bottom: 12px; margin: -3px 0 20px; border-bottom: 1px solid var(--border); }
+.settings-nav { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 12px; margin: -3px 0 20px; border-bottom: 1px solid var(--border); }
 .settings-nav button { flex: 1; border: 1px solid transparent; border-radius: 4px; padding: 8px 6px; background: transparent; color: #91a8b4; font-size: 11px; }
 .settings-nav button[aria-pressed="true"] { color: var(--mint); background: #1b3336; border-color: #335b56; }
 .settings-content { padding: 0; }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clone, starter } from '../examples';
 import type { Configuration, SweepResult } from './types';
-import { configForSlice, DoubleSweepBudget, DoubleSweepMemoryError, secondaryPlan, secondaryValues } from './doubleSweep';
+import { configForCombination, DoubleSweepBudget, DoubleSweepMemoryError, multiSweepPlan } from './doubleSweep';
 import { normalizeSweep } from './sweepPlan';
 import { sweep, sweepSteps } from './solver';
 import { mergeSweepUpdate, type WorkerRequest, type WorkerResponse } from './sweepStream';
@@ -24,14 +24,14 @@ const withoutTime = (result: SweepResult) => ({ ...result, elapsed: 0 });
 describe('second sweep sampling', () => {
   it('solves each level at its exact parameter value while retaining one X axis', () => {
     const config = configuration(); config.axes.x = 'x + 1';
-    const original = clone(config);
-    expect(secondaryValues(config)).toEqual([-1, 0, 1]);
-    for (const value of secondaryValues(config)) {
-      const slice = configForSlice(config, value), result = sweep(slice);
+    const original = clone(config), plan = multiSweepPlan(config);
+    expect(plan.dimensions[0].plan.values).toEqual([-1, 0, 1]);
+    for (const index of plan.order) {
+      const values = plan.valuesAt(index), slice = configForCombination(config, values), result = sweep(slice);
       expect(slice.sweep.secondary).toBeUndefined(); expect(slice.axes).toEqual(config.axes);
       for (const point of result.branches.flatMap(branch => branch.points)) {
-        expect(point.values.a).toBe(value);
-        expect(point.values.y).toBeCloseTo(value * point.parameter);
+        expect(point.values.a).toBe(values.a);
+        expect(point.values.y).toBeCloseTo(values.a * point.parameter);
         expect(point.x).toBeCloseTo(point.parameter + 1);
       }
     }
@@ -40,10 +40,10 @@ describe('second sweep sampling', () => {
 
   it('handles logarithmic levels and preserves exact endpoints', () => {
     const config = configuration(); Object.assign(config.sweep.secondary!, { min: .1, max: 10, logarithmic: true });
-    const values = secondaryValues(config);
+    const values = multiSweepPlan(config).dimensions[0].plan.values;
     expect(values[0]).toBe(.1); expect(values[1]).toBeCloseTo(1); expect(values[2]).toBe(10);
     Object.assign(config.sweep.secondary!, { min: 1e-300, max: 1e300 });
-    expect(secondaryValues(config).every(Number.isFinite)).toBe(true);
+    expect(multiSweepPlan(config).dimensions[0].plan.values.every(Number.isFinite)).toBe(true);
   });
 
   it('rejects incompatible parameters, unsafe grids, and invalid sampling', () => {
@@ -61,35 +61,35 @@ describe('second sweep sampling', () => {
       config => { config.sweep.min = config.sweep.max; },
       config => { config.solver.starts = 0; },
     ];
-    for (const edit of edits) { const config = configuration(); edit(config); expect(() => secondaryValues(config)).toThrow(); }
+    for (const edit of edits) { const config = configuration(); edit(config); expect(() => multiSweepPlan(config)).toThrow(); }
     const constrained = configuration();
     Object.assign(constrained.sweep, { mode: 'constrained', parameter: 'y', release: 'a' });
-    expect(() => secondaryValues(constrained)).toThrow('released parameter');
-    delete constrained.sweep.secondary; expect(secondaryValues(constrained)).toEqual([]);
+    expect(() => multiSweepPlan(constrained)).toThrow('released parameter');
+    delete constrained.sweep.secondary; expect(multiSweepPlan(constrained).dimensions).toEqual([]);
   });
 
   it('rejects levels that round to the same floating point value', () => {
     const config = configuration(); Object.assign(config.sweep.secondary!, { min: 1, max: 1 + Number.EPSILON, points: 3 });
-    expect(() => secondaryValues(config)).toThrow('distinct');
+    expect(() => multiSweepPlan(config)).toThrow('distinct');
   });
 
   it('derives sorted slices from parameter metadata and starts with the configured value', () => {
-    const config = centeredConfiguration(), plan = secondaryPlan(config);
+    const config = centeredConfiguration(), plan = multiSweepPlan(config).dimensions[0].plan;
     expect(plan.values).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(plan.startIndex).toBe(5);
     expect(plan.order.map(index => plan.values[index])).toEqual([5, 4, 6, 3, 7, 2, 8, 1, 9, 0, 10]);
     expect(config.sweep.points).toBe(3); expect(config.sweep.secondary!.points).toBe(11);
-    expect(configForSlice(config, 4).variables.find(variable => variable.name === 'a')!.value).toBe(4);
+    expect(configForCombination(config, { a: 4 }).variables.find(variable => variable.name === 'a')!.value).toBe(4);
     expect(config.variables.find(variable => variable.name === 'a')!.value).toBe(5);
   });
 
   it('allows step-derived counts above 100 without silently changing the step', () => {
     const config = centeredConfiguration();
     Object.assign(config.variables.find(variable => variable.name === 'a')!, { value: 50, min: 0, max: 100, step: 1 });
-    const normalized = normalizeSweep(config), plan = secondaryPlan(normalized);
+    const normalized = normalizeSweep(config), plan = multiSweepPlan(normalized).dimensions[0].plan;
     expect(plan.values).toHaveLength(101); expect(plan.values[plan.startIndex]).toBe(50);
     Object.assign(config.variables.find(variable => variable.name === 'a')!, { value: 5.2, min: 0, max: 10 });
-    const offset = secondaryPlan(normalizeSweep(config));
+    const offset = multiSweepPlan(normalizeSweep(config)).dimensions[0].plan;
     expect(offset.order.slice(0, 3).map(index => offset.values[index])).toEqual([5.2, 4.2, 6.2]);
     expect(offset.values.every(value => value >= 0 && value <= 10)).toBe(true);
   });
@@ -98,35 +98,35 @@ describe('second sweep sampling', () => {
     const config = centeredConfiguration();
     config.variables.find(variable => variable.name === 'x')!.step = 20;
     config.variables.find(variable => variable.name === 'a')!.step = 20;
-    expect(secondaryValues(normalizeSweep(config))).toEqual([5]);
+    expect(multiSweepPlan(normalizeSweep(config)).dimensions[0].plan.values).toEqual([5]);
     Object.assign(config.variables.find(variable => variable.name === 'x')!, { min: 0, max: 500, step: 1, value: 250 });
     Object.assign(config.variables.find(variable => variable.name === 'a')!, { min: 0, max: 500, step: 1, value: 250 });
-    expect(() => secondaryPlan(normalizeSweep(config))).toThrow(MAX_DOUBLE_SWEEP_SAMPLES.toLocaleString('en-US'));
+    expect(() => multiSweepPlan(normalizeSweep(config))).toThrow(MAX_DOUBLE_SWEEP_SAMPLES.toLocaleString('en-US'));
     config.variables.find(variable => variable.name === 'a')!.step = 0;
-    expect(() => secondaryPlan(normalizeSweep(config))).toThrow();
+    expect(() => multiSweepPlan(normalizeSweep(config))).toThrow();
   });
 
   it('accepts a full grid at the larger combined limit and rejects one slice beyond it', () => {
     const config = configuration();
     config.sweep.points = MAX_PARAMETER_SAMPLES;
     Object.assign(config.sweep.secondary!, { points: MAX_DOUBLE_SWEEP_SAMPLES / MAX_PARAMETER_SAMPLES });
-    expect(secondaryValues(config)).toHaveLength(5);
+    expect(multiSweepPlan(config).dimensions[0].plan.values).toHaveLength(5);
     config.sweep.secondary!.points++;
-    expect(() => secondaryValues(config)).toThrow('250,000');
+    expect(() => multiSweepPlan(config)).toThrow('250,000');
   });
 
   it('permits ten thousand selector levels while still validating individual limits', () => {
     const config = configuration(); config.sweep.points = 2;
     config.sweep.secondary!.points = MAX_SECONDARY_SLICES;
-    expect(secondaryValues(config)).toHaveLength(10_000);
+    expect(multiSweepPlan(config).dimensions[0].plan.values).toHaveLength(10_000);
     config.sweep.secondary!.points++;
-    expect(() => secondaryValues(config)).toThrow('10,000');
+    expect(() => multiSweepPlan(config)).toThrow('10,000');
   });
 });
 
 describe('double sweep memory budget', () => {
   it('counts each appended result once and keeps prior slices in the budget', () => {
-    const config = configuration(), result = sweep(configForSlice(config, 1)), budget = new DoubleSweepBudget(config);
+    const config = configuration(), result = sweep(configForCombination(config, { a: 1 })), budget = new DoubleSweepBudget(config);
     budget.startSlice(); const metadata = budget.bytes;
     budget.observe(result); const first = budget.bytes;
     expect(first).toBeGreaterThan(metadata);
@@ -139,7 +139,7 @@ describe('double sweep memory budget', () => {
   });
 
   it('includes failure strings and large diagnostic matrices and stops oversized data', () => {
-    const config = configuration(), result = sweep(configForSlice(config, 1));
+    const config = configuration(), result = sweep(configForCombination(config, { a: 1 }));
     const budget = new DoubleSweepBudget(config, 30000); budget.startSlice();
     result.branches[0].points[0].jacobian = Array.from({ length: 50 }, () => Array(50).fill(1));
     expect(() => budget.observe(result)).toThrow('memory budget');
@@ -152,7 +152,7 @@ describe('double sweep memory budget', () => {
     // Piecewise sources retain jump detection; fully affine curves now have a
     // proven unique direct solution and correctly continue as one branch.
     const config = configuration(); config.equations = 'y = if(x < 0, 1000*x, 1000*x);'; config.sweep.points = 41;
-    const slice = configForSlice(config, 1), budget = new DoubleSweepBudget(config), sampleCounts: number[] = [];
+    const slice = configForCombination(config, { a: 1 }), budget = new DoubleSweepBudget(config), sampleCounts: number[] = [];
     budget.startSlice();
     const steps = sweepSteps(slice, Infinity, (_result, sample) => {
       sampleCounts.push(sample.points.length); budget.observeSample(sample);
@@ -168,12 +168,12 @@ describe('double sweep memory budget', () => {
   it('matches full accounting for sample failures and checks the budget before a progress yield', () => {
     const config = configuration(); config.axes.y = 'sqrt(x), y';
     const budget = new DoubleSweepBudget(config); budget.startSlice();
-    const steps = sweepSteps(configForSlice(config, 1), Infinity, (_result, sample) => budget.observeSample(sample));
+    const steps = sweepSteps(configForCombination(config, { a: 1 }), Infinity, (_result, sample) => budget.observeSample(sample));
     const final = steps.next();
     const full = new DoubleSweepBudget(config); full.startSlice(); full.observe(final.value.result);
     expect(final.value.result.failures.length).toBeGreaterThan(0); expect(budget.bytes).toBe(full.bytes);
     const limited = new DoubleSweepBudget(config, full.bytes - 1); limited.startSlice();
-    expect(() => sweepSteps(configForSlice(config, 1), Infinity, (_result, sample) => limited.observeSample(sample)).next()).toThrow(DoubleSweepMemoryError);
+    expect(() => sweepSteps(configForCombination(config, { a: 1 }), Infinity, (_result, sample) => limited.observeSample(sample)).next()).toThrow(DoubleSweepMemoryError);
   });
 
   it('reserves sampling arrays and transfer bookkeeping before a large run starts', () => {
@@ -219,9 +219,10 @@ describe('double sweep worker', () => {
       }
     }
     expect(results.size).toBe(3);
-    secondaryValues(config).forEach((value, index) => {
-      expect(withoutTime(results.get(index)!)).toEqual(withoutTime(sweep(configForSlice(config, value))));
-    });
+    const plan = multiSweepPlan(config);
+    for (const index of plan.order) {
+      expect(withoutTime(results.get(index)!)).toEqual(withoutTime(sweep(configForCombination(config, plan.valuesAt(index)))));
+    }
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -236,7 +237,7 @@ describe('double sweep worker', () => {
       assembled.set(message.sliceIndex, mergeSweepUpdate(assembled.get(message.sliceIndex) ?? null, message.update));
     }
     for (const [index, result] of assembled) {
-      expect(withoutTime(result)).toEqual(withoutTime(sweep(configForSlice(config, index))));
+      expect(withoutTime(result)).toEqual(withoutTime(sweep(configForCombination(config, { a: index }))));
       expect(result.branches.flatMap(branch => branch.points).every(point => point.values.a === index)).toBe(true);
     }
     expect(messages.at(-1)).toMatchObject({ type: 'double-complete', totalSlices: 11 });
@@ -287,7 +288,7 @@ describe('double sweep worker', () => {
     const config = configuration(), { messages, send } = await worker();
     const invalid = clone(config); invalid.equations = 'y = missing;';
     send({ type: 'run', id: 5, config: invalid }); await vi.runAllTimersAsync();
-    expect(messages).toEqual([{ type: 'error', id: 5, error: expect.stringContaining('not defined') }]);
+    expect(messages).toEqual([{ type: 'error', id: 5, error: expect.stringContaining('Underdetermined') }]);
     messages.length = 0;
     const memory = await import('./doubleSweep');
     vi.spyOn(memory.DoubleSweepBudget.prototype, 'observeSample').mockImplementation(() => { throw new memory.DoubleSweepMemoryError(); });

@@ -1,28 +1,27 @@
 import { compile, lines, residual, type Expression } from './expression';
-import type { Configuration, Root, Scope, Variable, SweepResult, Branch, Point } from './types';
+import type { Complex, Configuration, Root, Scope, Variable, SweepResult, Branch, Point } from './types';
 import { usedVariables } from './variables';
-import { yExpressions } from './axes';
+import { configurationCurves, plotCurves } from './axes';
+import { coordinateExpression } from './coordinates';
+import { prepareComplex } from './complexSolver';
 import { applyValidityBounds } from './constraints';
 import { parameterSweepPlan } from './sweepPlan';
 import { MAX_PARAMETER_SAMPLES } from './sweepLimits';
 import { assignmentPlan, evaluateAssignments, substitutionPlan } from './assignments';
-import { equationAssignment, equationProgram } from './equations';
+import { equationProgram } from './equations';
+import { inferVariables } from './inference';
 import { affineRoot, affineSubstitutions } from './preprocessing';
 import { formatSampleCount } from './sweepCounts';
+import type { SampleLookup } from './sampleReuse';
 const norm = (a: number[]) => Math.max(0, ...a.map(Math.abs));
-interface Evaluation { values: Scope; residuals: number[] }
+interface Evaluation { values: Scope; complexValues?: Record<string, Complex>; residuals: number[] }
 export interface System { unknowns: Variable[]; allUnknowns?: Variable[]; equations: string[]; evaluate: (x: number[]) => Evaluation; direct?: () => Evaluation; directContinuous?: boolean; valid: (values: Scope) => boolean; region: (values: Scope) => string }
 export function prepare(config: Configuration, parameter?: number): System {
+  if (config.solver.complex) return prepareComplex(config, parameter);
+  if (!config.axes.x.trim() || !config.axes.y.trim()) throw new Error('Add set_time_axis parameter and plot unknown commands.');
   const program = equationProgram(config.equations);
   const used = usedVariables(config);
-  const definitions = [...config.variables];
-  // A simple assignment introduces its left-hand name. It can subsequently be
-  // reconstructed, or stay implicit if it belongs to a dependency cycle.
-  for (const equation of program.equations) {
-    const assignment = equationAssignment(equation);
-    if (assignment && ['pi', 'e', 'true', 'false'].includes(assignment.name)) throw new Error(`Invalid or reserved variable name “${assignment.name}”.`);
-    if (assignment && !definitions.some(variable => variable.name === assignment.name)) definitions.push({ name: assignment.name, kind: 'unknown', value: 0 });
-  }
+  const definitions = inferVariables(config, program);
   const names = new Set<string>();
   for (const v of definitions.filter(v => used.has(v.name))) {
     if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(v.name) || ['pi', 'e', 'true', 'false'].includes(v.name)) throw new Error(`Invalid or reserved variable name “${v.name}”.`);
@@ -38,13 +37,13 @@ export function prepare(config: Configuration, parameter?: number): System {
   } else if (variables.find(v => v.name === config.sweep.parameter)?.kind !== 'parameter') throw new Error(config.sweep.parameter ? `The selected sweep variable “${config.sweep.parameter}” is not an existing parameter. Add sweep after its value, step, minimum and maximum in Parameters.` : 'Select a sweep by adding sweep after a parameter’s value, step, minimum and maximum in Parameters.');
   const allUnknowns = variables.filter(v => v.kind === 'unknown');
   const originalEquations = program.equations, originalExpressions = originalEquations.map(residual);
-  if (allUnknowns.length !== originalExpressions.length) throw new Error(`${originalExpressions.length < allUnknowns.length ? 'Underdetermined' : 'Overdetermined'} system: ${originalExpressions.length} equations for ${allUnknowns.length} unknowns. Assign parameters or add/remove equations to make a square system.`);
+  if (allUnknowns.length !== originalExpressions.length) throw new Error(`${originalExpressions.length < allUnknowns.length ? 'Underdetermined' : 'Overdetermined'} system: ${originalExpressions.length} equations for ${allUnknowns.length} unknowns (${allUnknowns.map(variable => variable.name).join(', ')}). Declare intended fixed inputs with parameter name value, or add/remove equations to match the unknowns.`);
   if (!allUnknowns.length && !variables.some(variable => variable.kind === 'derived')) throw new Error('Define an unknown or an assignment in Equations.');
   const derived = variables.filter(v => v.kind === 'derived').map(v => ({ name: v.name, source: v.expression || '', expression: compile(v.expression || '') }));
   const conditionSources = [...program.conditions, ...lines(config.constraints)];
   const constraints = conditionSources.map(compile);
   const check = (e: Expression) => { for (const name of e.variables) if (!names.has(name)) throw new Error(`“${name}” is not defined. Add it under Unknowns or Parameters.`); };
-  [...originalExpressions, ...constraints, ...derived.map(d => d.expression), compile(config.axes.x), ...yExpressions(config.axes.y).map(compile)].forEach(check);
+  [...originalExpressions, ...constraints, ...derived.map(d => d.expression), compile(config.axes.x), ...plotCurves(config.axes).flatMap(curve => [compile(curve.x), compile(curve.y)])].forEach(check);
   const fixed: Scope = Object.create(null);
   variables.filter(v => v.kind === 'parameter').forEach(v => fixed[v.name] = v.name === config.sweep.parameter && parameter !== undefined ? parameter : v.value);
   applyValidityBounds(allUnknowns, conditionSources.join('\n'), fixed);
@@ -124,6 +123,7 @@ export function jacobian(system: System, x: number[]): number[][] {
   }); return j;
 }
 export function variableScale(v: Variable): number {
+  if (v.scale !== undefined && Number.isFinite(v.scale) && v.scale > 0) return v.scale;
   const scale = Math.max(Math.abs(v.value), v.min !== undefined && v.max !== undefined ? (v.max - v.min) / 2 : 0);
   return scale === 0 ? 1 : Math.max(scale, 1e-6);
 }
@@ -152,18 +152,27 @@ export function solve(system: System, guess: number[], options: Configuration['s
   const initialJ = jacobian(system, x);
   const rowScale = initialJ.map((row, i) => Math.max(Math.abs(state.residuals[i]), ...row.map((d, k) => Math.abs(d * scales[k])), 1e-12));
   const merit = (f: number[]) => f.reduce((s, v, i) => s + (v / rowScale[i]) ** 2, 0);
+  const acceptRoot = (iteration: number, derivatives?: number[][]): Root => {
+    checkBounds(state.values);
+    if (!system.valid(state.values)) throw new Error('Candidate root violates an inequality or branch validity condition.');
+    return { ...state, norm: norm(state.residuals), iterations: iteration, jacobian: includeJacobian ? derivatives ?? jacobian(system, x) : [], region: system.region(state.values) };
+  };
   let damping = 1e-8;
   for (let iteration = 0; iteration <= options.iterations; iteration++) {
-    if (norm(state.residuals.map((f, i) => f / rowScale[i])) <= options.tolerance && norm(state.residuals) <= options.tolerance * Math.max(1, norm(rowScale))) {
-      checkBounds(state.values);
-      if (!system.valid(state.values)) throw new Error('Candidate root violates an inequality or branch validity condition.');
-      return { ...state, norm: norm(state.residuals), iterations: iteration, jacobian: includeJacobian ? jacobian(system, x) : [], region: system.region(state.values) };
-    }
-    const j = jacobian(system, x);
+    const residualNorm = norm(state.residuals);
+    if (residualNorm === 0) return acceptRoot(iteration);
+    const j = iteration === 0 ? initialJ : jacobian(system, x);
     const a = j.map((row, i) => row.map((d, k) => d * scales[k] / rowScale[i]));
-    const f = state.residuals.map((v, i) => v / rowScale[i]); let accepted = false;
+    const f = state.residuals.map((v, i) => v / rowScale[i]);
+    const newtonStep = linearSolve(a, f.map(v => -v));
+    // A small residual alone can leave large variable errors near a flat root.
+    // Check the full Newton correction, before damping or line-search clipping;
+    // exact roots remain valid even when their Jacobian is singular.
+    const smallCorrection = newtonStep?.every((step, i) => Number.isFinite(step) && Math.abs(step) <= options.tolerance * Math.max(1, Math.abs(x[i]) / scales[i]));
+    if (norm(f) <= options.tolerance && residualNorm <= options.tolerance * Math.max(1, norm(rowScale)) && smallCorrection) return acceptRoot(iteration, j);
+    let accepted = false;
     for (let attempt = 0; attempt < 12; attempt++) {
-      let step: number[] | null = attempt === 0 ? linearSolve(a, f.map(v => -v)) : null;
+      let step: number[] | null = attempt === 0 ? newtonStep : null;
       if (!step) {
         const normal = scales.map((_, k) => scales.map((__, l) => a.reduce((sum, row) => sum + row[k] * row[l], 0) + (k === l ? damping : 0)));
         const rhs = scales.map((_, k) => -a.reduce((sum, row, i) => sum + row[k] * f[i], 0)); step = linearSolve(normal, rhs);
@@ -200,7 +209,7 @@ export function roots(system: System, options: Configuration['solver'], seeds: n
 export interface SweepStep { result: SweepResult; completed: number }
 export interface SweepSample { points: Point[]; failures: SweepResult['failures'] }
 /** Progress borrows the growing result. Consumers must copy new data before resuming. */
-export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: (result: SweepResult, sample: SweepSample) => void): Generator<SweepStep, SweepStep> {
+export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: (result: SweepResult, sample: SweepSample) => void, reuse?: SampleLookup): Generator<SweepStep, SweepStep> {
   const start = performance.now(), s = config.sweep;
   const centered = Object.hasOwn(s, 'step');
   let nextProgress = start + intervalMs;
@@ -211,8 +220,9 @@ export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: 
   const selected = config.variables.find(variable => variable.name === s.parameter);
   const plan = centered ? parameterSweepPlan({ name: s.parameter, kind: 'parameter', value: s.startAt ?? selected?.value ?? s.min, min: s.min, max: s.max, step: s.step }) : null;
   const total = plan?.values.length ?? s.points;
-  const firstSystem = prepare(config, plan ? plan.values[plan.startIndex] : s.min), xExpression = compile(config.axes.x), yLabels = yExpressions(config.axes.y), yCompiled = yLabels.map(compile);
-  const result: SweepResult = { branches: [], failures: [], solved: 0, total, elapsed: 0, unknowns: firstSystem.unknowns.map(v => v.name), equations: firstSystem.equations };
+  const firstSystem = prepare(config, plan ? plan.values[plan.startIndex] : s.min), curves = configurationCurves(config);
+  const xCompiled = curves.map(curve => coordinateExpression(curve.x, config.solver.complex)), yCompiled = curves.map(curve => coordinateExpression(curve.y, config.solver.complex));
+  const result: SweepResult = { branches: [], failures: [], solved: 0, total, elapsed: 0, unknowns: firstSystem.unknowns.map(v => v.name), equations: firstSystem.equations, computed: 0, reused: 0 };
   type Frontier = { branch: Branch; root: Root }[];
   let previous: Frontier = [], lower: Frontier = [], upper: Frontier = [], nextId = 1;
   for (let completed = 0; completed < total; completed++) {
@@ -223,7 +233,9 @@ export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: 
     const t = total === 1 ? 0 : i / (total - 1), parameter = plan ? plan.values[i] : s.logarithmic ? s.min * (s.max / s.min) ** t : s.min + (s.max - s.min) * t;
     // Dense Jacobians are computed only when inspecting a point, rather than
     // retaining an unknown-count-squared matrix at every stored sample.
-    const system = prepare(config, parameter), found = roots(system, config.solver, previous.map(p => system.unknowns.map(v => p.root.values[v.name])), false);
+    const system = prepare(config, parameter), cached = reuse?.(parameter);
+    const found = cached ?? roots(system, config.solver, previous.map(p => system.unknowns.map(v => p.root.values[v.name])), false);
+    if (cached) result.reused!++; else result.computed!++;
     const available = new Set(previous); const current: typeof previous = [];
     if (!found.roots.length) result.failures.push({ index: i, parameter, reason: found.error || 'No root found.' }); else result.solved++;
     // Continue from the adjacent point on the same side of the starting sample.
@@ -234,13 +246,16 @@ export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: 
     found.roots.forEach((root, r) => {
       try {
         const branch = matches.get(r) ?? { id: nextId++, points: [] };
-        const x = xExpression.evaluate(root.values);
-        const ys = yCompiled.map((expression, series) => {
-          try { return expression.evaluate(root.values); }
-          catch (error) { result.failures.push({ index: i, parameter, reason: `Y expression “${yLabels[series]}”: ${(error as Error).message}` }); return null; }
+        const xs = xCompiled.map((expression, series) => {
+          try { return expression.evaluate(root.values, root.complexValues); }
+          catch (error) { result.failures.push({ index: i, parameter, reason: `X expression “${curves[series].x}”: ${(error as Error).message}` }); return null; }
         });
-        if (ys.every(value => value === null)) return;
-        const point: Point = { ...root, x, y: ys[0] ?? NaN, ys, parameter, index: i, branch: branch.id };
+        const ys = yCompiled.map((expression, series) => {
+          try { return expression.evaluate(root.values, root.complexValues); }
+          catch (error) { result.failures.push({ index: i, parameter, reason: `Y expression “${curves[series].y}”: ${(error as Error).message}` }); return null; }
+        });
+        if (ys.every((value, series) => value === null || xs[series] === null)) return;
+        const point: Point = { ...root, x: xs[0] ?? NaN, y: ys[0] ?? NaN, ys, ...(config.axes.curves ? { xs } : {}), parameter, index: i, branch: branch.id };
         if (!branch.points.length) result.branches.push(branch);
         if (branch.points.length && i < branch.points[0].index) branch.points.unshift(point); else branch.points.push(point);
         current.push({ branch, root });

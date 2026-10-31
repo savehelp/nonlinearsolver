@@ -93,21 +93,3 @@ export function normalizeSweep(config: Configuration): Configuration {
   }));
   return normalized;
 }
-
-/** Older saved workspaces could keep sweep limits/counts separately and omit
- * slider fields. Fill only missing fields once; explicit Parameters values win. */
-export function migrateParameterSweepSettings(config: Configuration): void {
-  const fill = (name: string, legacy: { min: number; max: number; points: number }) => {
-    const variable = config.variables.find(variable => variable.name === name && variable.kind === 'parameter');
-    if (!variable) return;
-    if (variable.min === undefined) variable.min = Number.isFinite(legacy.min) ? legacy.min : Math.min(0, variable.value);
-    if (variable.max === undefined) variable.max = Number.isFinite(legacy.max) ? legacy.max : Math.max(10, variable.value * 2);
-    if (variable.step === undefined) {
-      const intervals = Number.isInteger(legacy.points) && legacy.points > 1 ? legacy.points - 1 : 100;
-      variable.step = (variable.max - variable.min) / intervals;
-      if (!Number.isFinite(variable.step)) variable.step = variable.max / intervals - variable.min / intervals;
-    }
-  };
-  if (config.sweep.mode === 'free') fill(config.sweep.parameter, config.sweep);
-  for (const dimension of sliceSweeps(config)) fill(dimension.parameter, dimension);
-}

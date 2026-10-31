@@ -1,8 +1,9 @@
 import type { Branch, Configuration, Point, SweepResult } from './types';
+import type { SampleReuseData } from './sampleReuse';
 
 /** Branches and failures contain only data not sent by earlier updates. */
 export interface SweepUpdate extends SweepResult { completed: number }
-export type WorkerRequest = { type: 'run'; id: number; config: Configuration } | { type: 'ack'; id: number };
+export type WorkerRequest = { type: 'run'; id: number; config: Configuration; reuse?: SampleReuseData } | { type: 'ack'; id: number };
 export type WorkerResponse = { type: 'progress' | 'complete'; id: number; update: SweepUpdate }
   | { type: 'slice-progress' | 'slice-complete'; id: number; sliceIndex: number; value: number; update: SweepUpdate }
   | { type: 'slice-error'; id: number; sliceIndex: number; value: number; error: string }
@@ -65,5 +66,7 @@ export function mergeSweepUpdate(previous: SweepResult | null, update: SweepUpda
     failures: update.failures.length ? [...(previous?.failures ?? []), ...update.failures] : previous?.failures ?? [],
     solved: update.solved, total: update.total, elapsed: update.elapsed,
     unknowns: update.unknowns, equations: update.equations,
+    ...(update.computed === undefined ? {} : { computed: update.computed }),
+    ...(update.reused === undefined ? {} : { reused: update.reused }),
   };
 }

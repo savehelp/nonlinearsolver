@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { clone, starter, validateImport } from '../examples';
+import { clone, starter } from '../examples';
+import { compileDocuments, ensureDocuments } from './documents';
 import type { Variable } from './types';
-import { migrateParameterSweepSettings, normalizeSweep, parameterSweepPlan } from './sweepPlan';
-import { sliceSweeps, toggleParameterSweep } from './variables';
+import { normalizeSweep, parameterSweepPlan } from './sweepPlan';
+import { setSliceSweeps, sliceSweeps } from './variables';
 import { MAX_PARAMETER_SAMPLES, MAX_SECONDARY_SLICES } from './sweepLimits';
 
 const parameter = (update: Partial<Variable> = {}): Variable => ({ name: 'VDD', kind: 'parameter', value: 5, min: 0, max: 10, step: 1, ...update });
@@ -80,9 +81,9 @@ describe('parameter-driven sweep plans', () => {
   });
 });
 
-describe('sampling normalization and migration', () => {
+describe('sampling normalization', () => {
   it('uses the separate slice limit without silently changing an oversized step', () => {
-    const config = clone(starter); toggleParameterSweep(config, 'a', true);
+    const config = clone(starter); setSliceSweeps(config, [{ parameter: 'a', min: -5, max: 5, points: 11, logarithmic: false }]);
     const variable = config.variables.find(variable => variable.name === 'a')!;
     Object.assign(variable, { min: 0, max: MAX_SECONDARY_SLICES - 1, step: 1, value: 0 });
     expect(normalizeSweep(config).sweep.secondary?.points).toBe(MAX_SECONDARY_SLICES);
@@ -92,7 +93,7 @@ describe('sampling normalization and migration', () => {
     expect(invalid.sweep.secondary?.step).toBe(1);
   });
   it('uses Parameters range, step, and starting value for both sweeps', () => {
-    const config = clone(starter); toggleParameterSweep(config, 'a', true);
+    const config = clone(starter); setSliceSweeps(config, [{ parameter: 'a', min: -5, max: 5, points: 11, logarithmic: false }]);
     Object.assign(config.sweep, { min: 100, max: 200, points: 999, logarithmic: true });
     Object.assign(config.sweep.secondary!, { min: 200, max: 300, points: 999, logarithmic: true });
     const before = clone(config), normalized = normalizeSweep(config);
@@ -103,7 +104,7 @@ describe('sampling normalization and migration', () => {
   });
 
   it('normalizes every dimension from its own Parameters fields without mutating saved settings', () => {
-    const config = clone(starter); toggleParameterSweep(config, 'a', true); toggleParameterSweep(config, 'b', true);
+    const config = clone(starter); setSliceSweeps(config, ['a', 'b'].map(parameter => ({ parameter, min: -5, max: 5, points: 11, logarithmic: false })));
     Object.assign(config.variables.find(variable => variable.name === 'b')!, { min: -2, max: 4, step: 2, value: 0 });
     const before = clone(config), normalized = normalizeSweep(config);
     expect(sliceSweeps(normalized)).toHaveLength(2);
@@ -122,42 +123,23 @@ describe('sampling normalization and migration', () => {
     expect(() => parameterSweepPlan(config.variables[1])).toThrow('step size');
   });
 
-  it('preserves legacy constrained main sweep settings while deriving parameter slices', () => {
+  it('preserves constrained main sweep settings while deriving parameter slices', () => {
     const config = clone(starter); Object.assign(config.sweep, { mode: 'constrained', parameter: 'y', release: 'b', step: 1, startAt: 0 });
-    toggleParameterSweep(config, 'a', true);
+    setSliceSweeps(config, [{ parameter: 'a', min: -5, max: 5, points: 11, logarithmic: false }]);
     const normalized = normalizeSweep(config);
     expect(normalized.sweep.points).toBe(config.sweep.points);
     expect(Object.hasOwn(normalized.sweep, 'step')).toBe(false);
     expect(normalized.sweep.secondary?.points).toBe(101);
   });
 
-  it('fills only missing metadata from legacy sweep fields during import', () => {
-    const config = clone(starter), x = config.variables.find(variable => variable.name === 'x')!;
-    delete x.min; delete x.max; delete x.step;
-    Object.assign(config.sweep, { min: -2, max: 2, points: 9 });
-    migrateParameterSweepSettings(config);
-    expect(x).toMatchObject({ min: -2, max: 2, step: .5, value: 0 });
-    x.min = -10; x.max = 10; x.step = 0;
-    const imported = validateImport(config);
-    expect(imported.variables.find(variable => variable.name === 'x')).toMatchObject({ min: -10, max: 10, step: 0 });
-  });
-
-  it('migrates missing parameter metadata separately for every selected dimension', () => {
-    const config = clone(starter); toggleParameterSweep(config, 'a', true); toggleParameterSweep(config, 'b', true);
-    const b = config.variables.find(variable => variable.name === 'b')!;
-    delete b.min; delete b.max; delete b.step;
-    Object.assign(config.sweep.additional![0], { min: -1, max: 3, points: 9 });
-    const imported = validateImport(config);
-    expect(imported.variables.find(variable => variable.name === 'b')).toMatchObject({ min: -1, max: 3, step: .5, value: 0 });
-    expect(imported.variables.find(variable => variable.name === 'a')).toEqual(config.variables.find(variable => variable.name === 'a'));
-    expect(b.step).toBeUndefined();
-  });
-
-  it('clears stale sampling markers when replacing a main selection', () => {
+  it('reprojects sampling when declarations promote another parameter', () => {
     const config = normalizeSweep(clone(starter));
-    config.sweep.secondary = { parameter: 'a', min: -2, max: 2, points: 5, logarithmic: false };
-    toggleParameterSweep(config, 'x', false);
-    expect(Object.hasOwn(config.sweep, 'step')).toBe(false);
-    expect(normalizeSweep(config).sweep).toMatchObject({ parameter: 'a', step: .1, startAt: 1, points: 101 });
+    const documents = ensureDocuments(config).map(document => ({ ...document, source: document.source
+      .replace('parameter x 0 0.1 -5 5 sweep', 'parameter x 0 0.1 -5 5')
+      .replace('parameter a 1 0.1 -5 5', 'parameter a 1 0.1 -5 5 sweep')
+      .replace('set_time_axis x', 'set_time_axis a') }));
+    const changed = compileDocuments(config, documents);
+    expect(changed.sweep).toMatchObject({ parameter: 'a', step: .1, startAt: 1, points: 101 });
+    expect(sliceSweeps(changed)).toEqual([]);
   });
 });

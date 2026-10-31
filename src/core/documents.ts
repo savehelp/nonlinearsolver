@@ -1,12 +1,19 @@
 import { applyDeclarations, formatDeclarations, parseDeclarations, type DeclarationKind } from './declarations';
 import { compile, residual } from './expression';
 import { equationProgram } from './equations';
-import { parameterSweepRole } from './variables';
-import { migrateEquationInputs } from './workspaceSyntax';
-import type { Configuration, EditorDocument, Variable } from './types';
+import { inferVariables } from './inference';
+import { plotArguments, plotCurves, yExpressions } from './axes';
+import { evaluateTransitionLines, MAX_TRANSITION_LINES, TransitionExpressionError } from './transitions';
+import type { Configuration, EditorDocument, PlotTransition, Variable } from './types';
 
 export const MAX_EDITOR_DOCUMENTS = 32;
 export const MAX_DOCUMENT_SOURCE = 200_000;
+
+/** Plot drafts must not cancel a numerical solve or discard computed roots. */
+export class PlotSourceError extends Error {
+  readonly kind = 'plot';
+  constructor(message: string, readonly config?: Configuration) { super(message); this.name = 'PlotSourceError'; }
+}
 
 export function validateDocuments(documents: unknown): asserts documents is EditorDocument[] {
   if (!Array.isArray(documents) || documents.length < 1 || documents.length > MAX_EDITOR_DOCUMENTS) throw new Error(`Use 1–${MAX_EDITOR_DOCUMENTS} editor tabs.`);
@@ -19,28 +26,33 @@ export function validateDocuments(documents: unknown): asserts documents is Edit
   if (length > MAX_DOCUMENT_SOURCE) throw new Error(`Editor tabs exceed ${MAX_DOCUMENT_SOURCE.toLocaleString('en-US')} characters in total.`);
 }
 
-/** One-time conversion; after this all tabs accept the same mixed syntax. */
+/** Seed source tabs for built-in models that use the engine representation. */
 export function ensureDocuments(config: Configuration): EditorDocument[] {
   if (config.documents !== undefined) { validateDocuments(config.documents); return config.documents; }
-  migrateEquationInputs(config);
   config.documents = [
-    { id: 'equations', title: 'Equations', source: config.equations },
+    { id: 'equations', title: 'Equations', source: [config.equations, [
+      ...(config.axes.x && config.axes.y ? [`set_time_axis ${config.axes.x}`, ...plotCurves(config.axes).map(curve => config.axes.curves ? `plot (${curve.y}) (${curve.x})` : `plot ${curve.y}`)] : []),
+      ...(config.axes.transitions ?? []).map(transition => `plot_${transition.axis}_transition ${transition.expression}`),
+    ].join('\n')].filter(Boolean).join('\n\n') },
     { id: 'definitions', title: 'Definitions', source: [formatDeclarations(config, 'unknown'), formatDeclarations(config, 'parameter')].filter(Boolean).join('\n\n') },
   ];
   return config.documents;
 }
 
-interface Statement { start: number; end: number; line: number; clean: string; kind?: DeclarationKind }
-const declarationKind = (clean: string): DeclarationKind | undefined => /^(unknown|parameter)(?:\s|$)/.exec(clean)?.[1] as DeclarationKind | undefined;
+type StatementKind = DeclarationKind | 'plot' | 'set_time_axis' | 'plot_x_transition' | 'plot_y_transition';
+interface Statement { start: number; end: number; line: number; clean: string; kind?: StatementKind }
+const statementKind = (clean: string): StatementKind | undefined => /^(unknown|parameter|plot_x_transition|plot_y_transition|plot|set_time_axis)(?:\s|$)/.exec(clean)?.[1] as StatementKind | undefined;
+const plotting = (kind?: StatementKind) => kind === 'plot' || kind === 'set_time_axis' || kind === 'plot_x_transition' || kind === 'plot_y_transition';
 
-/** Declarations end at top-level newlines or semicolons. Math uses the existing
+/** Declarations and plot commands end at top-level newlines or semicolons. Math uses the existing
  * semicolon convention, including multiline expressions; legacy newline-only
  * tabs still work. Comments and raw source positions remain in the document. */
 function statements(source: string): Statement[] {
   const result: Statement[] = [], legacy = !source.replace(/#[^\r\n]*/g, '').includes(';');
   let start = 0, clean = '', depth = 0, comment = false, line = 1, firstLine = 1;
+  const syntaxError = (message: string) => plotting(statementKind(clean.trim())) ? new PlotSourceError(message) : new Error(message);
   const flush = (end: number, terminated: boolean) => {
-    const text = clean.trim(), kind = declarationKind(text);
+    const text = clean.trim(), kind = statementKind(text);
     if (text) {
       if (!kind && !legacy && !terminated) throw new Error(`Line ${firstLine}: end each equation or validity check with a semicolon (;).`);
       result.push({ start, end, line: firstLine, clean: text, kind });
@@ -50,7 +62,7 @@ function statements(source: string): Statement[] {
   for (let index = 0; index < source.length; index++) {
     const char = source[index];
     if (char === '\n') {
-      if (depth === 0 && (declarationKind(clean.trim()) || legacy || !clean.trim())) flush(index, false);
+      if (depth === 0 && (statementKind(clean.trim()) || legacy || !clean.trim())) flush(index, false);
       else clean += char;
       comment = false; line++;
       if (!clean.trim()) { start = index + 1; firstLine = line; }
@@ -61,11 +73,11 @@ function statements(source: string): Statement[] {
     if (!clean.trim() && char.trim()) firstLine = line;
     if (char === '(') depth++;
     if (char === ')') depth--;
-    if (depth < 0) throw new Error(`Line ${line}: unexpected closing parenthesis.`);
+    if (depth < 0) throw syntaxError(`Line ${line}: unexpected closing parenthesis.`);
     if (char === ';' && depth === 0) { flush(index, true); firstLine = line; }
     else clean += char;
   }
-  if (depth) throw new Error(`Line ${firstLine}: close every parenthesized expression.`);
+  if (depth) throw syntaxError(`Line ${firstLine}: close every parenthesized expression.`);
   flush(source.length, false);
   return result;
 }
@@ -78,13 +90,18 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
   validateDocuments(documents);
   const unknowns: Variable[] = [], parameters: Variable[] = [], swept: string[] = [], equations: string[] = [];
   const declarations = new Map<string, { document: EditorDocument; line: number }>();
+  const display: { part: Statement; document: EditorDocument }[] = [];
   for (const document of documents) {
     let parts: Statement[];
     try { parts = statements(document.source); }
-    catch (error) { throw new Error(`“${document.title}”: ${(error as Error).message}`); }
+    catch (error) {
+      const message = `“${document.title}”: ${(error as Error).message}`;
+      throw error instanceof PlotSourceError ? new PlotSourceError(message) : new Error(message);
+    }
     for (const part of parts) {
       try {
-        if (part.kind) {
+        if (plotting(part.kind)) display.push({ part, document });
+        else if (part.kind === 'unknown' || part.kind === 'parameter') {
           const parsed = parseDeclarations(part.clean, part.kind), variable = parsed.variables[0];
           const previous = declarations.get(variable.name);
           if (previous) throw new Error(`“${variable.name}” is already declared in “${previous.document.title}”, line ${previous.line}.`);
@@ -103,6 +120,12 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
   if (math.length > 50_000) throw new Error('Equations across all tabs exceed 50,000 characters.');
   const next = structuredClone(config);
   next.variables = []; next.constraints = ''; next.equations = math;
+  next.axes = { x: '', y: '' };
+  // The time selection controls the traced sweep, independently of each
+  // curve's displayed X expression and of declaration order.
+  const timeCommand = display.find(({ part }) => part.kind === 'set_time_axis');
+  const timeName = timeCommand && /^set_time_axis\s+([A-Za-z_][A-Za-z_0-9]*)$/.exec(timeCommand.part.clean)?.[1];
+  if (next.sweep.mode === 'free' && timeName && swept.includes(timeName)) next.sweep.parameter = timeName;
   applyDeclarations(next, 'unknown', { variables: unknowns, swept: [] });
   try { applyDeclarations(next, 'parameter', { variables: parameters, swept }); }
   catch (error) {
@@ -113,6 +136,57 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
     throw new Error(at ? describe(at.document, at.line, message) : message);
   }
   next.documents = documents.map(document => ({ ...document }));
+  // Plotting is validated only after the mathematical model. Even an invalid
+  // display command can carry a valid model for the computation lifecycle.
+  const definitions = inferVariables(next), names = new Set(definitions.map(variable => variable.name));
+  const plotted: { x?: string; y: string }[] = [];
+  const transitions: PlotTransition[] = [], transitionLocations: { document: EditorDocument; line: number }[] = [];
+  let selected: { parameter: string; document: EditorDocument; line: number } | undefined;
+  let firstPlot: { document: EditorDocument; line: number } | undefined;
+  for (const { part, document } of display) {
+    try {
+      if (part.kind === 'set_time_axis') {
+        const match = /^set_time_axis\s+([A-Za-z_][A-Za-z_0-9]*)$/.exec(part.clean);
+        if (!match) throw new Error('Use set_time_axis parameter, for example set_time_axis x.');
+        const parameter = match[1];
+        if (selected && parameter !== selected.parameter) throw new Error(`The time axis is already set to “${selected.parameter}” in “${selected.document.title}”, line ${selected.line}. Use one traversal parameter across all tabs.`);
+        if (next.sweep.mode === 'constrained' && parameter !== next.sweep.parameter) throw new Error(`In constrained mode, set_time_axis must select the imposed unknown “${next.sweep.parameter}”. Use plot y x to choose other displayed coordinates.`);
+        const imposed = next.sweep.mode === 'constrained' && parameter === next.sweep.parameter && definitions.some(variable => variable.kind === 'unknown' && variable.name === parameter);
+        if (!swept.includes(parameter) && !imposed) throw new Error(`“${parameter}” must already be selected for a sweep. Add sweep after its parameter value, step, minimum and maximum.`);
+        if (next.sweep.mode === 'constrained' && parameter === next.sweep.release) throw new Error(`“${parameter}” is released by the constrained sweep and cannot also be swept.`);
+        selected ??= { parameter, document, line: part.line };
+      } else if (part.kind === 'plot_x_transition' || part.kind === 'plot_y_transition') {
+        const match = /^plot_([xy])_transition\s+([\s\S]+)$/.exec(part.clean);
+        if (!match) throw new Error(`Use ${part.kind} constant, for example ${part.kind} 0.`);
+        compile(match[2]);
+        transitions.push({ axis: match[1] as 'x' | 'y', expression: match[2].trim() });
+        transitionLocations.push({ document, line: part.line });
+        if (transitions.length > MAX_TRANSITION_LINES) throw new Error(`Use at most ${MAX_TRANSITION_LINES} transition lines.`);
+      } else {
+        const match = /^plot\s+([\s\S]+)$/.exec(part.clean);
+        if (!match) throw new Error('Use plot y or plot y x.');
+        firstPlot ??= { document, line: part.line };
+        for (const curve of plotArguments(match[1])) {
+          for (const expression of [curve.x, curve.y]) if (expression !== undefined) {
+            for (const name of compile(expression).variables) if (!names.has(name) && !(next.solver.complex && (name === 'i' || name === 'j'))) throw new Error(`“${name}” is not defined. Declare it or define it in an equation.`);
+          }
+          plotted.push(curve);
+        }
+        yExpressions(plotted.map(curve => curve.y).join(', '));
+      }
+    } catch (error) { throw new PlotSourceError(describe(document, part.line, (error as Error).message), next); }
+  }
+  if (firstPlot && !selected) throw new PlotSourceError(describe(firstPlot.document, firstPlot.line, 'Set the traversal axis with set_time_axis parameter, for example set_time_axis x.'), next);
+  const realImposedAxis = next.solver.complex && next.sweep.mode === 'constrained';
+  next.axes = { x: selected?.parameter ?? '', y: plotted.map(curve => curve.y).join(', '),
+    ...(plotted.length && (realImposedAxis || plotted.some(curve => curve.x !== undefined)) ? { curves: plotted.map(curve => ({ x: curve.x ?? (realImposedAxis ? `real(${selected!.parameter})` : selected!.parameter), y: curve.y })) } : {}),
+    ...(transitions.length ? { transitions } : {}),
+  };
+  try { evaluateTransitionLines(next); }
+  catch (error) {
+    const location = transitionLocations[error instanceof TransitionExpressionError ? error.index : 0];
+    throw new PlotSourceError(location ? describe(location.document, location.line, (error as Error).message) : (error as Error).message, next);
+  }
   return next;
 }
 
@@ -134,7 +208,7 @@ function tokens(source: string): Token[] {
 }
 const keys = ['value', 'step', 'min', 'max'] as const;
 
-/** Reflect controls in their existing declaration locations. Only fields that
+/** Reflect numeric controls in their existing declaration locations. Only fields that
  * changed externally are rewritten; untouched expressions/comments and invalid
  * drafts elsewhere remain byte-for-byte intact. */
 export function syncDocumentVariables(config: Configuration, previous?: Configuration): void {
@@ -145,18 +219,16 @@ export function syncDocumentVariables(config: Configuration, previous?: Configur
     try { parts = statements(document.source); } catch { continue; }
     const edits: { start: number; end: number; text: string }[] = [];
     for (const part of parts) {
-      if (!part.kind) continue;
+      if (part.kind !== 'unknown' && part.kind !== 'parameter') continue;
       let parsed: Variable;
       try { parsed = parseDeclarations(part.clean, part.kind).variables[0]; } catch { continue; }
       const variable = byName.get(parsed.name);
       if (!variable || variable.kind !== part.kind) continue;
       const before = previous?.variables.find(candidate => candidate.name === variable.name);
-      const desiredSweep = part.kind === 'parameter' && !!parameterSweepRole(config, variable.name);
-      const oldSweep = previous && part.kind === 'parameter' && !!parameterSweepRole(previous, variable.name);
-      if (before && keys.every(key => before[key] === variable[key]) && desiredSweep === oldSweep) continue;
+      if (before && keys.every(key => before[key] === variable[key])) continue;
       const raw = document.source.slice(part.start, part.end), pieces = tokens(raw);
       if (pieces.length < 2) continue;
-      const suffix = raw.slice(pieces.at(-1)!.start, pieces.at(-1)!.end).trim() === 'sweep' ? pieces.pop() : undefined;
+      if (raw.slice(pieces.at(-1)!.start, pieces.at(-1)!.end).trim() === 'sweep') pieces.pop();
       const values = [variable.value];
       if (part.kind === 'parameter') for (const value of [variable.step, variable.min, variable.max]) { if (value === undefined) break; values.push(value); }
       const oldOptions = pieces.slice(2);
@@ -169,12 +241,10 @@ export function syncDocumentVariables(config: Configuration, previous?: Configur
       }
       let insertion = '';
       if (values.length > oldOptions.length) insertion += ' ' + values.slice(oldOptions.length).join(' ');
-      if (desiredSweep && !suffix) insertion += ' sweep';
       if (insertion) {
         const at = oldOptions.at(-1)?.end ?? pieces[1].end;
         edits.push({ start: part.start + at, end: part.start + at, text: insertion });
       }
-      if (!desiredSweep && suffix) edits.push({ start: part.start + suffix.start, end: part.start + suffix.end, text: '' });
     }
     for (const edit of edits.sort((left, right) => right.start - left.start || right.end - left.end)) document.source = document.source.slice(0, edit.start) + edit.text + document.source.slice(edit.end);
   }

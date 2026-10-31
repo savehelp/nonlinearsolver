@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { clone, starter } from '../examples';
 import resistorNoise from './fixtures/resistor-noise.json';
+import { loadWorkspace } from './workspace';
 import { prepare, roots, solve, sweep } from './solver';
 import type { Configuration } from './types';
 
@@ -12,7 +13,7 @@ function model(equations: string, unknowns = ['x']): Configuration {
   config.sweep = { parameter: 'p', min: 0, max: 2, points: 3, logarithmic: false, mode: 'free', release: '' };
   return config;
 }
-const noiseModel = (): Configuration => clone(resistorNoise as Configuration);
+const noiseModel = (): Configuration => loadWorkspace(resistorNoise);
 function relative(actual: number, expected: number) {
   if (expected === 0) expect(actual).toBe(0);
   else expect(Math.abs((actual - expected) / expected)).toBeLessThan(1e-12);

@@ -1,4 +1,3 @@
-import ExpressionInput from './ExpressionInput';
 import type { Configuration } from './core/types';
 import { sliceSweeps } from './core/variables';
 
@@ -10,40 +9,22 @@ interface Props {
   onValid: () => void;
 }
 
-export default function SweepSettings({ config, onChange, onValidity, onRevert, onValid }: Props) {
+export default function SweepSettings({ config }: Props) {
   const additional = sliceSweeps(config).map(dimension => dimension.parameter).filter(Boolean);
+  const legacy = config.sweep.mode === 'constrained';
 
   return <section className="settings-content" aria-label="Sweep settings">
-    <div className="settings-fields">
-      <label>Sweep mode<select aria-label="Sweep mode" value={config.sweep.mode} onChange={event => onChange(current => {
-        current.sweep.mode = event.target.value as Configuration['sweep']['mode'];
-        current.sweep.parameter = current.variables.find(variable => variable.kind === (current.sweep.mode === 'free' ? 'parameter' : 'unknown'))?.name ?? '';
-        current.sweep.release = current.variables.find(variable => variable.kind === 'parameter')?.name ?? '';
-      })}>
-        <option value="free">Free parameter sweep</option>
-        <option value="constrained">Impose unknown, release parameter</option>
-      </select></label>
-      {config.sweep.mode === 'constrained' && <>
-        <label>Imposed unknown<select aria-label="Imposed unknown" value={config.sweep.parameter} onChange={event => onChange(current => { current.sweep.parameter = event.target.value; })}>
-          <option value="" disabled>Choose an unknown</option>
-          {config.variables.filter(variable => variable.kind === 'unknown').map(variable => <option key={variable.name}>{variable.name}</option>)}
-        </select></label>
-        <label>Released parameter<select aria-label="Released parameter" value={config.sweep.release} onChange={event => onChange(current => { current.sweep.release = event.target.value; })}>
-          <option value="" disabled>Choose a parameter</option>
-          {config.variables.filter(variable => variable.kind === 'parameter').map(variable => <option key={variable.name}>{variable.name}</option>)}
-        </select></label>
-        <label>Sample spacing<select aria-label="Sample spacing" value={config.sweep.logarithmic ? 'log' : 'linear'} onChange={event => onChange(current => { current.sweep.logarithmic = event.target.value === 'log'; })}>
-          <option value="linear">Linear</option>
-          <option value="log">Logarithmic</option>
-        </select></label>
-        {([['min', 'Minimum'], ['max', 'Maximum'], ['points', 'Samples']] as const).map(([key, label]) => <label key={key}>{label}<ExpressionInput label={label} value={config.sweep[key]} onValue={value => {
-          if (value !== undefined) onChange(current => { current.sweep[key] = value; });
-        }} onValidity={onValidity} onRevert={onRevert} onValid={onValid}/></label>)}
-      </>}
-    </div>
+    {legacy && <p className="field-hint">Impose/release sweeps are deprecated. This saved workspace keeps its existing settings for compatibility. Use a new equation workspace to start a parameter sweep.</p>}
+    {!legacy && <p className="field-hint">Mark a parameter with sweep in its declaration, then choose the main time axis with set_time_axis. The declaration controls its starting value, step, and range; other marked parameters add slice dimensions.</p>}
     <dl className="settings-summary">
-      {config.sweep.mode === 'free' && <div><dt>Main sweep</dt><dd>{config.sweep.parameter || 'None'}</dd></div>}
+      <div><dt>{legacy ? 'Legacy imposed unknown' : 'Time axis'}</dt><dd>{config.sweep.parameter || 'None'}</dd></div>
+      {legacy && <div><dt>Legacy released parameter</dt><dd>{config.sweep.release || 'None'}</dd></div>}
       <div><dt>Additional sweeps</dt><dd>{additional.join(', ') || 'None'}</dd></div>
+      {!legacy && config.sweep.parameter && <>
+        <div><dt>Main range</dt><dd>{config.sweep.min} to {config.sweep.max}</dd></div>
+        <div><dt>Main step</dt><dd>{config.sweep.step ?? 'Set in the parameter declaration'}</dd></div>
+        <div><dt>Starting value</dt><dd>{config.sweep.startAt ?? config.variables.find(variable => variable.name === config.sweep.parameter)?.value ?? 'Set in the parameter declaration'}</dd></div>
+      </>}
     </dl>
   </section>;
 }

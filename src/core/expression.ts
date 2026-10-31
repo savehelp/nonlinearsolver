@@ -3,6 +3,24 @@ export type ExpressionNode = { type: 'number'; value: number } | { type: 'variab
 type Node = ExpressionNode;
 const constants: Scope = { pi: Math.PI, e: Math.E, true: 1, false: 0 };
 const functions: Record<string, (...args: number[]) => number> = { abs: Math.abs, sqrt: Math.sqrt, exp: Math.exp, log: Math.log, ln: Math.log, log10: Math.log10, sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2, sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, min: Math.min, max: Math.max, pow: Math.pow, floor: Math.floor, ceil: Math.ceil, sign: Math.sign };
+const projections: Record<string, (value: number) => number> = {
+  real: (value: number) => value, re: (value: number) => value,
+  imag: (_value: number) => 0, im: (_value: number) => 0,
+  mag: Math.abs, arg: (value: number) => Math.atan2(0, value), phase: (value: number) => Math.atan2(0, value),
+  conj: (value: number) => value,
+};
+for (const [name, project] of Object.entries(projections)) functions[name] = (...args) => {
+  if (args.length !== 1) throw new Error(`${name} expects one argument.`);
+  if (!Number.isFinite(args[0])) throw new Error(`Non-finite argument to ${name}.`);
+  return project(args[0]);
+};
+functions.complex = (...args) => {
+  if (args.length !== 2) throw new Error('Use complex(realPart, imaginaryPart).');
+  const [real, imaginary] = args;
+  if (!Number.isFinite(real) || !Number.isFinite(imaginary)) throw new Error('Non-finite complex component.');
+  if (imaginary !== 0) throw new Error('Enable complex mode to use a nonzero imaginary part.');
+  return real;
+};
 const prefixes: Scope = { p: 1e-12, n: 1e-9, u: 1e-6, m: 1e-3, k: 1e3, K: 1e3, M: 1e6, G: 1e9, T: 1e12 };
 const precedence: Record<string, number> = { '||': 1, '&&': 2, '==': 3, '!=': 3, '<': 4, '>': 4, '<=': 4, '>=': 4, '+': 5, '-': 5, '*': 6, '/': 6, '^': 8, '**': 8 };
 export interface Expression { evaluate: (scope: Scope) => number; variables: string[]; readonly node: ExpressionNode }
@@ -92,7 +110,6 @@ export function equationStatements(source: string): string[] {
   if (statement.trim()) statements.push(statement.trim());
   return statements;
 }
-export function equationCount(source: string): number | '—' { try { return equationStatements(source).length; } catch { return '—'; } }
 export function residual(source: string): Expression {
   const equality = /(?<![<>=!])=(?!=)/g; const matches = [...source.matchAll(equality)];
   if (matches.length > 1) throw new Error('Use one equality per equation and end each equation with a semicolon (;).');

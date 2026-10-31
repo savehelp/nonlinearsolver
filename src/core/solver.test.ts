@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { compile, residual, equationStatements, equationCount } from './expression';
+import { compile, residual, equationStatements } from './expression';
 import { prepare, roots, solve, sweep } from './solver';
-import { clone, examples, starter, validateImport } from '../examples';
+import { clone, examples, starter } from '../examples';
+import { compileDocuments, ensureDocuments } from './documents';
 import type { Configuration } from './types';
-import { addVariable, deleteVariable, updateVariable, reconcileSweep } from './variables';
+import { reconcileSweep } from './variables';
 import { yExpressions } from './axes';
 import { numericExpression } from './numeric';
-import { migrateUnknownBounds } from './constraints';
-import { equationProgram } from './equations';
 function generic(equations: string, unknowns = ['x']): Configuration { const c = clone(examples[2]); c.equations = equations; c.regions = []; c.variables = [...unknowns.map(name => ({ name, kind: 'unknown' as const, value: .8, min: -5, max: 5 })), { name: 'p', kind: 'parameter', value: 0, min: -1, max: 1 }]; c.axes = { x: 'p', y: unknowns[0] }; return c; }
 describe('safe math expressions', () => {
   it('evaluates scientific notation and numeric expressions for parameter controls', () => {
@@ -28,7 +27,7 @@ describe('safe math expressions', () => {
   it('uses semicolons to delimit multiline equations and ignores comment punctuation', () => {
     const source = '# heading; ignored\nx +\n y = 3; # inline; ignored\nx - y\n = 1;';
     expect(equationStatements(source)).toEqual(['x +\n y = 3', 'x - y\n = 1']);
-    expect(equationCount(source)).toBe(2);
+    expect(equationStatements(source)).toHaveLength(2);
     const c = generic(source, ['x', 'y']); const root = solve(prepare(c), [0, 0], c.solver);
     expect(root.values.x).toBeCloseTo(2); expect(root.values.y).toBeCloseTo(1);
   });
@@ -39,10 +38,10 @@ describe('safe math expressions', () => {
   it('explains missing terminators and does not count physical lines as equations', () => {
     expect(() => equationStatements('x=1;\ny=2')).toThrow('semicolon');
     expect(() => residual(equationStatements('x=1\ny=2;')[0])).toThrow('semicolon');
-    expect(equationCount('x=1;\ny=')).toBe('—');
+    expect(() => equationStatements('x=1;\ny=')).toThrow('semicolon');
     expect(equationStatements('x=1; y=2;')).toHaveLength(2);
   });
-  it('keeps legacy newline-separated systems compatible', () => {
+  it('supports newline-separated systems without semicolons', () => {
     expect(equationStatements('x=1\ny=if(\n x>0,\n 2, 3\n)')).toHaveLength(2);
     expect(equationStatements('# only a comment;\n')).toEqual([]);
   });
@@ -52,27 +51,6 @@ describe('safe math expressions', () => {
   it('rejects arbitrary code and invalid evaluations', () => { expect(() => compile('window.alert(1)')).toThrow(); expect(() => compile('constructor(1)')).toThrow(); expect(() => compile('sqrt(-1)').evaluate({})).toThrow(); expect(() => compile('1/0').evaluate({})).toThrow(); });
 });
 describe('nonlinear engine', () => {
-  it('migrates legacy unknown bounds to validity conditions without changing parameter sliders', () => {
-    const c = clone(starter); c.constraints = 'a >= -5';
-    const unknown = c.variables.find(v => v.name === 'y')!; unknown.min = -1; unknown.max = 1;
-    const parameter = c.variables.find(v => v.name === 'a')!; const oldRange = [parameter.min, parameter.max, parameter.step];
-    const migrated = validateImport(JSON.parse(JSON.stringify(c)));
-    expect(migrated.variables.find(v => v.name === 'y')?.min).toBeUndefined();
-    expect(migrated.variables.find(v => v.name === 'y')?.max).toBeUndefined();
-    expect(migrated.constraints).toBe('');
-    expect(equationProgram(migrated.equations).conditions).toEqual(['a >= -5', 'y >= -1', 'y <= 1']);
-    expect([migrated.variables.find(v => v.name === 'a')?.min, migrated.variables.find(v => v.name === 'a')?.max, migrated.variables.find(v => v.name === 'a')?.step]).toEqual(oldRange);
-    expect(migrateUnknownBounds(migrated)).toBe(false);
-  });
-  it('preserves the graph and gaps when old bounds become validity conditions', () => {
-    const original = clone(starter); original.equations = 'y = x;'; original.sweep.points = 21;
-    Object.assign(original.variables.find(v => v.name === 'y')!, { min: -1, max: 1 });
-    const converted = clone(original); migrateUnknownBounds(converted);
-    const before = sweep(original), after = sweep(converted);
-    expect(after.solved).toBe(before.solved);
-    expect(after.branches.flatMap(b => b.points).map(p => p.index)).toEqual(before.branches.flatMap(b => b.points).map(p => p.index));
-    expect(after.failures.map(f => f.index)).toEqual(before.failures.map(f => f.index));
-  });
   it('applies inclusive validity bounds using numbers, reversed inequalities, and sweep parameters', () => {
     const c = clone(starter); c.equations = 'y = x;'; c.constraints = '0 <= y\ny <= x + 2\ny <= 10^2';
     const system = prepare(c, 3); expect(system.unknowns[0].min).toBe(0); expect(system.unknowns[0].max).toBe(5);
@@ -92,10 +70,39 @@ describe('nonlinear engine', () => {
   });
   it('solves coupled linear equations and reports the Jacobian', () => { const c = generic('2*x + y = 5\nx - y = 1', ['x', 'y']); const r = solve(prepare(c), [.8, .8], c.solver); expect(r.values.x).toBeCloseTo(2, 7); expect(r.values.y).toBeCloseTo(1, 7); expect(r.jacobian[0][0]).toBeCloseTo(2); expect(r.norm).toBeLessThan(1e-8); });
   it('solves a known nonlinear root', () => { const c = generic('x^2 = 2'); const r = solve(prepare(c), [1], c.solver); expect(r.values.x).toBeCloseTo(Math.SQRT2, 7); });
+  it('refines a repeated root before accepting or deduplicating it', () => {
+    const c = clone(starter); c.equations = 'y^2 = x; y >= 0;';
+    const system = prepare(c, 0), root = solve(system, [1], c.solver);
+    expect(root.values.y).toBeCloseTo(0, 8);
+    const found = roots(system, c.solver).roots;
+    expect(found).toHaveLength(1);
+    expect(found[0].values.y).toBeCloseTo(0, 8);
+  });
+  it('resolves nearby positive roots without rounding them to the repeated root', () => {
+    const c = clone(starter); c.equations = 'y^2 = x; y >= 0;';
+    const root = solve(prepare(c, 1e-12), [1], c.solver);
+    expect(root.values.y).toBeCloseTo(1e-6, 8);
+    expect(root.values.y).toBeGreaterThan(0);
+  });
+  it('rejects a small stationary residual when no real root exists', () => {
+    const c = clone(starter); c.equations = 'y^2 = -1e-12;';
+    expect(roots(prepare(c), c.solver).roots).toEqual([]);
+  });
+  it('accepts an exact root with a singular Jacobian', () => {
+    const c = clone(starter); c.equations = 'y^2 = x;';
+    const root = solve(prepare(c, 0), [0], c.solver);
+    expect(root.values.y).toBe(0); expect(root.norm).toBe(0);
+    expect(root.iterations).toBe(0); expect(root.jacobian).toEqual([[0]]);
+  });
+  it('scales convergence corrections relative to large unknown values', () => {
+    const c = clone(starter); c.equations = '(y/1e12)^2 = 2;';
+    const root = solve(prepare(c), [1e12], c.solver);
+    expect(root.values.y / 1e12).toBeCloseTo(Math.SQRT2, 8);
+  });
   it('discovers and deduplicates three roots', () => { const c = generic('x^3-x = 0'); const r = roots(prepare(c), { ...c.solver, starts: 24 }).roots; expect(r).toHaveLength(3); expect(r.map(r => Math.round(r.values.x)).sort()).toEqual([-1, 0, 1]); });
   it('enforces bounds and validity conditions', () => { const c = generic('x^2 = 1'); c.constraints = 'x > 0'; const found = roots(prepare(c), c.solver).roots; expect(found).toHaveLength(1); expect(found[0].values.x).toBeCloseTo(1); c.variables[0].min = 2; expect(roots(prepare(c), c.solver).roots).toHaveLength(0); });
   it('reports invalid evaluations and nonconvergence', () => { let c = generic('sqrt(-1) = x'); expect(() => solve(prepare(c), [1], c.solver)).toThrow('Non-finite'); c = generic('x^2 = -1'); expect(roots(prepare(c), c.solver).roots).toHaveLength(0); });
-  it('detects configuration problems', () => { const c = generic('x=1\nx=2'); expect(() => prepare(c)).toThrow('Overdetermined'); c.equations = ''; expect(() => prepare(c)).toThrow('Underdetermined'); c.equations = 'x = missing'; expect(() => prepare(c)).toThrow('not defined'); });
+  it('detects configuration problems', () => { const c = generic('x=1\nx=2'); expect(() => prepare(c)).toThrow('Overdetermined'); c.equations = ''; expect(() => prepare(c)).toThrow('Underdetermined'); c.equations = 'x = missing'; expect(() => prepare(c)).toThrow('Underdetermined'); });
   it('resolves derived dependencies and detects cycles', () => { const c = generic('x = a'); c.variables.push({ name: 'a', kind: 'derived', value: 0, expression: 'b + 1' }, { name: 'b', kind: 'derived', value: 0, expression: 'p + 2' }); expect(solve(prepare(c), [0], c.solver).values.x).toBeCloseTo(3); c.variables[3].expression = 'a'; expect(() => solve(prepare(c), [0], c.solver)).toThrow('circular'); });
   it('handles a piecewise region boundary', () => { const c = generic('x = if(p <= 0, 0, p^2)'); for (const p of [-1, 0, 1]) expect(solve(prepare(c, p), [.8], c.solver).values.x).toBeCloseTo(p <= 0 ? 0 : 1, 7); });
 });
@@ -124,7 +131,6 @@ describe('sweeps and examples', () => {
     const c = clone(starter); c.equations = 'y=x;'; c.axes.y = 'y, extra';
     c.variables.push({ name: 'extra', kind: 'derived', value: 0, expression: 'a*x+b' });
     const r = sweep(c); expect(r.failures).toHaveLength(0); expect(r.branches[0].points[0].values).toHaveProperty('extra');
-    expect(validateImport(JSON.parse(JSON.stringify(c))).axes.y).toBe('y, extra');
   });
   it('reports the missing low-vx points caused by the supplied i1 upper bound', () => {
     const c = clone(starter); c.equations = 'vd1=vdd;\nvg1=vdd;\nvs1=vx;\ni1=(vg1-vs1-vth)^2;';
@@ -145,35 +151,30 @@ describe('sweeps and examples', () => {
     const first = full.branches.flatMap(b => b.points).find(p => p.index === 0)!;
     expect(first.x).toBe(0); expect(first.y).toBeCloseTo(18.49, 6);
   });
-  it('rebuilds a y=x sweep after deleting every variable and adding new definitions', () => {
-    const c = clone(starter);
-    while (c.variables.length) deleteVariable(c, 0);
-    expect(c.sweep.parameter).toBe('');
-    addVariable(c); updateVariable(c, 0, { name: 'y', kind: 'unknown', value: 0 });
-    addVariable(c); updateVariable(c, 1, { kind: 'parameter' });
-    const generated = c.variables[1].name; expect(c.sweep.parameter).toBe(generated);
-    updateVariable(c, 1, { name: 'x' }); expect(c.sweep.parameter).toBe('x');
-    c.equations = 'y = x;'; c.axes = { x: 'x', y: 'y' };
-    const r = sweep(c); expect(r.solved).toBe(c.sweep.points); expect(r.branches).toHaveLength(1);
-    expect(r.branches[0].points[0].y).toBeCloseTo(-5);
-    expect(r.branches[0].points.at(-1)!.y).toBeCloseTo(5);
+  it('rebuilds a y=x sweep after removing and replacing all declarations', () => {
+    const empty = compileDocuments(clone(starter), [{ id: 'model', title: 'Model', source: '' }]);
+    expect(empty.variables).toEqual([]); expect(empty.sweep.parameter).toBe('');
+    const source = 'unknown y\nparameter x 0 .1 -5 5 sweep\ny = x;\nset_time_axis x\nplot y';
+    const rebuilt = compileDocuments(empty, [{ id: 'model', title: 'Model', source }]);
+    expect(rebuilt.sweep.parameter).toBe('x');
+    const result = sweep(rebuilt); expect(result.solved).toBe(101); expect(result.branches).toHaveLength(1);
+    expect(result.branches[0].points[0].y).toBeCloseTo(-5);
+    expect(result.branches[0].points.at(-1)!.y).toBeCloseTo(5);
   });
-  it('clears stale sweep selections instead of silently displaying the first option', () => {
-    const c = clone(starter); c.sweep.parameter = 'deleted'; reconcileSweep(c);
-    expect(c.sweep.parameter).toBe('');
-    c.variables = c.variables.filter(v => v.name === 'x' || v.name === 'y'); reconcileSweep(c);
-    expect(c.sweep.parameter).toBe('x');
-    updateVariable(c, 1, { kind: 'unknown' }); expect(c.sweep.parameter).toBe('');
+  it('clears stale sweep selections and applies changes to declaration kinds', () => {
+    const config = clone(starter); config.sweep.parameter = 'deleted'; reconcileSweep(config, false);
+    expect(config.sweep.parameter).toBe('');
+    const selected = compileDocuments(config, [{ id: 'model', title: 'Model', source: 'unknown y\nparameter x 0 1 -5 5 sweep\ny = x;' }]);
+    expect(selected.sweep.parameter).toBe('x');
+    const changed = compileDocuments(selected, [{ id: 'model', title: 'Model', source: 'unknown y\nunknown x\ny = x;' }]);
+    expect(changed.sweep.parameter).toBe('');
+    expect(changed.variables.find(variable => variable.name === 'x')?.kind).toBe('unknown');
   });
-  it('does not turn slider ranges into hard bounds when changing parameter to unknown', () => {
-    const c = clone(starter); const index = c.variables.findIndex(v => v.name === 'a');
-    updateVariable(c, index, { kind: 'unknown' });
-    expect(c.variables[index].min).toBeUndefined(); expect(c.variables[index].max).toBeUndefined(); expect(c.variables[index].step).toBeUndefined();
-  });
-  it('creates unique editable variable names after deletions', () => {
-    const c = clone(starter); c.variables = [];
-    addVariable(c); addVariable(c); deleteVariable(c, 0); addVariable(c);
-    expect(new Set(c.variables.map(v => v.name)).size).toBe(2);
+  it('does not turn slider ranges into hard bounds when a declaration becomes an unknown', () => {
+    const config = clone(starter);
+    const documents = ensureDocuments(config).map(document => ({ ...document, source: document.source.replace('parameter a 1 0.1 -5 5', 'unknown a 1') }));
+    const changed = compileDocuments(config, documents), variable = changed.variables.find(variable => variable.name === 'a')!;
+    expect(variable.kind).toBe('unknown'); expect(variable.min).toBeUndefined(); expect(variable.max).toBeUndefined(); expect(variable.step).toBeUndefined();
   });
   it('starts with a generic linear equation and user-defined parameters only', () => {
     const c = clone(starter); const r = sweep(c);
@@ -212,5 +213,4 @@ describe('sweeps and examples', () => {
   it('supports logarithmic and constrained sweeps', () => { const c = generic('x = 2*p'); c.sweep = { ...c.sweep, min: .1, max: 1, points: 3, logarithmic: true }; expect(sweep(c).branches[0].points[1].parameter).toBeCloseTo(Math.sqrt(.1)); c.sweep = { ...c.sweep, mode: 'constrained', parameter: 'x', release: 'p', logarithmic: false }; const r = sweep(c); expect(r.solved).toBe(3); expect(r.branches[0].points[0].values.p).toBeCloseTo(.05); });
   it('validates NMOS against the analytical zero-lambda saturation result', () => { const c = clone(examples[0]); c.variables.find(v => v.name === 'LAMBDA')!.value = 0; const r = solve(prepare(c, 1.2), [3, .0001], c.solver); expect(r.values.ID).toBeCloseTo(.001 / 2 * .5 ** 2, 10); expect(r.values.VD).toBeCloseTo(3.3 - 2200 * r.values.ID, 8); });
   it('solves both transistor examples over their full input range', () => { for (const example of examples.slice(0, 2)) { const c = clone(example); c.sweep.points = 41; const r = sweep(c); expect(r.solved).toBe(41); expect(r.failures).toHaveLength(0); const points = r.branches.flatMap(b => b.points); expect(points.every(p => p.norm < 1e-7)).toBe(true); if (c.name === 'CMOS inverter') { expect(points.find(p => p.index === 0)!.values.VOUT).toBeCloseTo(3.3, 5); expect(points.find(p => p.index === 40)!.values.VOUT).toBeCloseTo(0, 5); } } });
-  it('round-trips configuration JSON and rejects incomplete imports', () => { expect(validateImport(JSON.parse(JSON.stringify(examples[0])))).toEqual(examples[0]); expect(() => validateImport({ name: 'x' })).toThrow(); });
 });

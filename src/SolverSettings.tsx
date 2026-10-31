@@ -11,6 +11,11 @@ interface Props {
 
 export default function SolverSettings({ config, onChange, onValidity, onRevert, onValid }: Props) {
   return <section className="settings-content" aria-label="Solver settings">
+    <label className="check-label"><input type="checkbox" checked={Boolean(config.solver.complex)} onChange={event => {
+      const enabled = event.target.checked;
+      onChange(current => { current.solver.complex = enabled; });
+    }}/>Complex mode</label>
+    <p className="field-hint">Allow complex unknowns. Parameters, sweeps, and plot coordinates stay real; use real, imag, abs, or arg to plot complex results.</p>
     <div className="settings-fields">
       {([
         ['tolerance', 'Tolerance', 'Greater than 0, up to 0.1'],

@@ -54,7 +54,7 @@ export default function DiagnosticsPanel({ config, result, busy, resultComplete,
       </dl>
       <details className="diagnostic-details"><summary>Model details</summary><dl className="diagnostic-list">
         <div><dt>Source tabs</dt><dd>{count(model.tabs)}</dd></div>
-        <div><dt>Inferred definitions</dt><dd>{count(model.inferredVariables)}</dd></div>
+        <div><dt>Inferred unknowns</dt><dd>{count(model.inferredVariables)}</dd></div>
         {!!model.declaredDerived && <div><dt>Legacy derived definitions</dt><dd>{count(model.declaredDerived)}</dd></div>}
         {model.preparationSkipped ? <div><dt>Reduction analysis</dt><dd>Available per point</dd></div> : <>
           <div><dt>Active unknowns at start</dt><dd>{count(model.activeUnknowns)}</dd></div>
