@@ -8,6 +8,7 @@ import { prepare, roots, sweep } from './solver';
 import type { Configuration, EditorDocument } from './types';
 
 const tab = (source: string, title = 'Circuit'): EditorDocument => ({ id: title, title, source });
+const nmosK = 350e-4 * (3.9 * 8.854214871e-12 / 9e-9) * 1e-6 / .34e-6;
 function compile(source: string | EditorDocument[], definitions?: ElementDefinition[], complex = false): Configuration {
   const config = clone(starter);
   config.solver.complex = complex;
@@ -39,26 +40,33 @@ describe('element workspaces and solver integration', () => {
     const points = result.branches.flatMap(branch => branch.points);
     expect(points).toHaveLength(5);
     for (const point of points) {
-      const overdrive = Math.max(0, point.parameter - .7), coefficient = .001 / 2 * overdrive ** 2;
-      const expected = coefficient * (1 + .02 * 3.3) / (1 + coefficient * .02 * 1000);
+      const overdrive = Math.max(0, point.parameter - .7), coefficient = nmosK / 2 * overdrive ** 2;
+      const expected = coefficient * (1 + .1 * 3.3) / (1 + coefficient * .1 * 1000);
       expect(point.values['M1.id']).toBeCloseTo(expected, 9);
       expect(point.values['M1.d']).toBeCloseTo(3.3 - point.values['M1.id'] * 1000, 7);
       expect(point.values['M1.s']).toBe(0);
+      expect(point.values['M1.VTH']).toBe(.7);
       expect(point.values['M1.g']).toBeCloseTo(point.parameter, 10);
       expect(point.ys).toEqual([point.values['M1.id'], point.values['M1.d']]);
     }
     const constants = inspectConstants(config);
     expect(constants.parameters).toEqual(expect.arrayContaining([
-      { name: 'M1.VTH', value: .7 }, { name: 'M1.K', value: .001 }, { name: 'M1.LAMBDA', value: .02 },
+      { name: 'M1.VTO', value: .7 }, { name: 'M1.UO', value: 350 }, { name: 'M1.W', value: 1e-6 },
     ]));
+    const folded = new Map(constants.assignments.map(entry => [entry.name, entry.value]));
+    // Source selection depends on the solved drain voltage, so its threshold
+    // cannot be folded before solving even though this circuit stays forward.
+    expect(folded.has('M1.VTH')).toBe(false);
+    expect(folded.get('M1.K')).toBeCloseTo(nmosK, 12);
+    expect(folded.get('M1.LAMBDA')).toBeCloseTo(.1, 12);
     expect(constants.parameters.some(entry => entry.name === 'vin' || entry.name === 'M1.id')).toBe(false);
   });
 
   it('resolves instance declarations across tabs and keeps two devices independent', () => {
     const config = compile([
       tab(`parameter vin 1.5 .5 0 2 sweep
-parameter M2.VTH 1
-parameter M2.K .002
+parameter M2.VTO 1
+parameter M2.W 2u
 M1.g = vin; M1.s = 0; M1.d = 3.3;
 M2.g = vin; M2.s = 0; M2.d = 3.3;
 set_time_axis vin
@@ -69,42 +77,42 @@ plot M2.id`, 'Connections'),
     const found = roots(prepare(config, 1.5), config.solver);
     expect(found.error).toBe(''); expect(found.roots).toHaveLength(1);
     const values = found.roots[0].values;
-    expect(values['M1.id']).toBeCloseTo(.001 / 2 * .8 ** 2 * 1.066, 10);
-    expect(values['M2.id']).toBeCloseTo(.002 / 2 * .5 ** 2 * 1.066, 10);
+    expect(values['M1.id']).toBeCloseTo(nmosK / 2 * .8 ** 2 * 1.33, 10);
+    expect(values['M2.id']).toBeCloseTo(nmosK * .5 ** 2 * 1.33, 10);
     expect(values['M1.VTH']).toBe(.7); expect(values['M2.VTH']).toBe(1);
-    expect(config.variables.filter(variable => variable.name === 'M2.K')).toHaveLength(1);
+    expect(config.variables.filter(variable => variable.name === 'M2.W')).toHaveLength(1);
   });
 
   it('materializes an edited default as a source override that survives compilation and saving', () => {
     const before = compile(circuit), changed = structuredClone(before);
-    changed.variables.find(variable => variable.name === 'M1.VTH')!.value = 1.1;
+    changed.variables.find(variable => variable.name === 'M1.VTO')!.value = 1.1;
     syncDocumentVariables(changed, before);
-    expect(changed.documents![0].source).toContain('parameter M1.VTH 1.1');
+    expect(changed.documents![0].source).toContain('parameter M1.VTO 1.1');
     expect(before.documents![0].source).toBe(circuit);
     const recompiled = compileDocuments(changed, changed.documents!);
-    expect(recompiled.variables.filter(variable => variable.name === 'M1.VTH')).toEqual([{ name: 'M1.VTH', kind: 'parameter', value: 1.1 }]);
+    expect(recompiled.variables.filter(variable => variable.name === 'M1.VTO')).toEqual([{ name: 'M1.VTO', kind: 'parameter', value: 1.1 }]);
     const file = createWorkspace(recompiled), restored = loadWorkspace(JSON.parse(JSON.stringify(file)));
     expect(file.elements?.some(definition => definition.name === 'NMOSFET')).toBe(true);
     expect(restored.documents).toEqual(recompiled.documents);
-    expect(restored.variables.find(variable => variable.name === 'M1.VTH')?.value).toBe(1.1);
+    expect(restored.variables.find(variable => variable.name === 'M1.VTO')?.value).toBe(1.1);
     expect(sweep(restored).solved).toBe(5);
   });
 
   it('uses a qualified device parameter as the real traversal axis', () => {
     const config = compile(`element NMOSFET M1
-parameter M1.VTH .5 .25 .5 1.5 sweep
+parameter M1.VTO .5 .25 .5 1.5 sweep
 M1.g = 2; M1.s = 0; M1.d = 3.3;
-set_time_axis M1.VTH
+set_time_axis M1.VTO
 plot M1.id`);
-    expect(config.sweep.parameter).toBe('M1.VTH');
-    expect(config.axes.x).toBe('M1.VTH');
+    expect(config.sweep.parameter).toBe('M1.VTO');
+    expect(config.axes.x).toBe('M1.VTO');
     const result = sweep(config);
     expect(result.solved).toBe(5); expect(result.failures).toEqual([]);
     for (const point of result.branches.flatMap(branch => branch.points)) {
-      expect(point.values['M1.VTH']).toBe(point.parameter);
-      expect(point.values['M1.id']).toBeCloseTo(.001 / 2 * (2 - point.parameter) ** 2 * 1.066, 10);
+      expect(point.values['M1.VTO']).toBe(point.parameter);
+      expect(point.values['M1.id']).toBeCloseTo(nmosK / 2 * (2 - point.parameter) ** 2 * 1.33, 10);
     }
-    expect(inspectConstants(config).parameters.some(entry => entry.name === 'M1.VTH')).toBe(false);
+    expect(inspectConstants(config).parameters.some(entry => entry.name === 'M1.VTO')).toBe(false);
   });
 
   it('loads a generic JSON model, snapshots its equations, and solves after a workspace roundtrip', () => {

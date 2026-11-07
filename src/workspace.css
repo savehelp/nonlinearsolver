@@ -103,6 +103,12 @@ input[aria-invalid="true"] { border-color: #f07575; }
 .settings-content { padding: 0; }
 .element-library-actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 14px 0; }
 .element-library-actions .button { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; }
+.element-origin { padding: 2px 7px; border: 1px solid #38505a; border-radius: 4px; }
+.element-origin[data-origin="replacement"] { color: #e8bb7d; border-color: #6b5640; }
+.element-json-editor, .element-replacement-choice { margin: 14px 0; padding: 12px; border: 1px solid #38505a; border-radius: 5px; background: #111c22; }
+.element-json-editor label, .element-replacement-choice label { display: block; color: #9db3bf; font-size: 11px; }
+.element-json-editor textarea { display: block; width: 100%; min-height: 220px; margin-top: 9px; padding: 10px; resize: vertical; font: 11px/1.6 var(--mono); tab-size: 2; }
+.element-replacement-choice select { display: block; width: 100%; margin-top: 8px; }
 .settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 16px; }
 .settings-fields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: #9db3bf; font-size: 11px; }
 .settings-fields input, .settings-fields select { width: 100%; min-width: 0; font: 11px var(--mono); }
@@ -144,6 +150,16 @@ input[aria-invalid="true"] { border-color: #f07575; }
 .diagnostic-failures li p { margin: 4px 0 0; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
 .modal .inspector-context { margin: 7px 0 0; font: 11px/1.7 var(--mono); color: #9bb9b2; }
 .inspector-context span { color: var(--muted); font-size: 10px; }
+.workspace-import-modal { width: 560px; }
+.workspace-import-drop { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 30px 20px; text-align: center; border: 1px dashed #486570; border-radius: 8px; background: #101c23; color: #94b9ba; transition: background .15s, border-color .15s; }
+.workspace-import-drop.dragging { border-color: var(--mint); background: #19382f; }
+.workspace-import-drop strong { color: #c3d9d6; font-size: 13px; font-weight: 500; }
+.workspace-import-drop p { margin: 0; max-width: 380px; font-size: 11px; line-height: 1.8; }
+.workspace-import-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.workspace-import-actions .button { flex: 1; }
+.workspace-import-status { margin-bottom: 0; color: var(--mint); }
+.workspace-import-error { margin-top: 18px; margin-bottom: 0; }
+.workspace-import-footer { display: flex; justify-content: flex-end; margin-top: 20px; }
 @media (max-width: 560px) {
   .settings-fields, .diagnostic-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .diagnostic-facts.grid-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }

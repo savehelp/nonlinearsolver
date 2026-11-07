@@ -1,5 +1,6 @@
-import builtinLibrary from '../../elements/nmosfet.json';
-import { compile, residual, type ExpressionNode } from './expression';
+import nmosLibrary from '../../elements/nmosfet.json';
+import pmosLibrary from '../../elements/pmosfet.json';
+import { compile, residual, type Expression, type ExpressionNode } from './expression';
 import { equationAssignment, equationProgram } from './equations';
 import { plotArguments } from './axes';
 import type { Configuration, Variable } from './types';
@@ -10,11 +11,20 @@ export interface ElementDefinition {
   description?: string;
   mode?: 'real' | 'complex' | 'both';
   terminals: string[];
+  /** Fallback equations for terminals absent from external math equations. */
+  terminalDefaults?: Record<string, string>;
+  /** Additional public names for declared terminals; targets are canonical names. */
+  terminalAliases?: Record<string, string>;
   parameters: Record<string, ElementParameter>;
   unknowns?: Record<string, number>;
   equations: string[];
 }
 export interface ElementLibrary { format: 'nonlinear-elements'; version: 1; elements: ElementDefinition[] }
+export interface ElementLibraryEntry {
+  definition: ElementDefinition;
+  origin: 'default' | 'replacement' | 'imported';
+  defaultDefinition?: ElementDefinition;
+}
 export interface ElementDeclaration { type: string; name: string; location?: string }
 export interface ElementUsage { source: string; kind: 'math' | 'display'; location?: string }
 
@@ -54,7 +64,7 @@ function parameter(value: unknown, label: string): ElementParameter {
 }
 
 interface ModelStatement { equation?: string; condition?: string }
-interface ModelInfo { definition: ElementDefinition; members: Set<string>; statements: ModelStatement[] }
+interface ModelInfo { definition: ElementDefinition; members: Set<string>; statements: ModelStatement[]; defaults: Map<string, Expression>; aliases: Map<string, string> }
 
 function statement(source: string): ModelStatement {
   if (/^(?:element|unknown|parameter|plot(?:_[xy]_transition)?|set_time_axis)(?:\s|$)/.test(source.trim())) throw new Error('Element templates contain only equations and validity checks, not declarations or plot commands.');
@@ -71,15 +81,21 @@ function visit(node: ExpressionNode, fn: (node: ExpressionNode) => void): void {
 }
 
 function modelInfo(definition: ElementDefinition): ModelInfo {
-  const members = new Set([...definition.terminals, ...Object.keys(definition.parameters), ...Object.keys(definition.unknowns ?? {})]);
+  const aliases = new Map(Object.entries(definition.terminalAliases ?? {}));
+  const members = new Set([...definition.terminals, ...Object.keys(definition.parameters), ...Object.keys(definition.unknowns ?? {}), ...aliases.keys()]);
   const statements = definition.equations.map(statement);
   for (const entry of statements) {
     const assignment = entry.equation && equationAssignment(entry.equation);
-    if (assignment) { name(assignment.name, `${definition.name} assignment target`); members.add(assignment.name); }
+    if (assignment) {
+      name(assignment.name, `${definition.name} assignment target`);
+      if (aliases.has(assignment.name)) throw new Error(`${definition.name}: terminal alias “${assignment.name}” cannot also be an assignment target.`);
+      members.add(assignment.name);
+    }
   }
   if (members.size > 100) throw new Error(`${definition.name}: use at most 100 members.`);
-  for (const entry of statements) {
-    const expression = entry.equation ? residual(entry.equation) : compile(entry.condition!);
+  const defaults = new Map(definition.terminals.flatMap(terminal => Object.hasOwn(definition.terminalDefaults ?? {}, terminal)
+    ? [[terminal, compile(definition.terminalDefaults![terminal])] as const] : []));
+  const validate = (expression: Expression) => {
     for (const variable of expression.variables) {
       if (!members.has(variable) && !((definition.mode ?? 'both') !== 'real' && (variable === 'i' || variable === 'j'))) {
         throw new Error(`${definition.name}: “${variable}” is not a declared local member or an assignment target.`);
@@ -88,13 +104,39 @@ function modelInfo(definition: ElementDefinition): ModelInfo {
     visit(expression.node, node => {
       if (node.type === 'number' && !Number.isFinite(node.value)) throw new Error(`${definition.name}: numeric literals must be finite.`);
     });
+  };
+  for (const entry of statements) validate(entry.equation ? residual(entry.equation) : compile(entry.condition!));
+  for (const expression of defaults.values()) validate(expression);
+  // Defaults are definitions, so reject circular aliases, including an alias
+  // that returns through a computed assignment. Ordinary simultaneous model
+  // equations may still contain cycles unrelated to a terminal default.
+  const dependencies = new Map<string, Set<string>>();
+  const depend = (target: string, variables: string[]) => {
+    const entries = dependencies.get(target) ?? new Set<string>();
+    variables.forEach(variable => entries.add(variable)); dependencies.set(target, entries);
+  };
+  for (const entry of statements) {
+    const assignment = entry.equation && equationAssignment(entry.equation);
+    if (assignment) depend(assignment.name, compile(assignment.source).variables);
   }
-  return { definition, members, statements };
+  for (const [alias, terminal] of aliases) depend(alias, [terminal]);
+  for (const [terminal, expression] of defaults) depend(terminal, expression.variables);
+  for (const [terminal, expression] of defaults) {
+    const visited = new Set<string>();
+    const circular = (variable: string): boolean => {
+      if (variable === terminal) return true;
+      if (visited.has(variable) || Object.hasOwn(definition.parameters, variable)) return false;
+      visited.add(variable);
+      return [...dependencies.get(variable) ?? []].some(circular);
+    };
+    if (expression.variables.some(circular)) throw new Error(`${definition.name}.terminalDefaults.${terminal}: circular terminal default.`);
+  }
+  return { definition, members, statements, defaults, aliases };
 }
 
 function definition(value: unknown): ElementDefinition {
   if (!object(value)) throw new Error('Each element definition must be an object.');
-  keys(value, ['name', 'description', 'mode', 'terminals', 'parameters', 'unknowns', 'equations'], 'Element definition');
+  keys(value, ['name', 'description', 'mode', 'terminals', 'terminalDefaults', 'terminalAliases', 'parameters', 'unknowns', 'equations'], 'Element definition');
   name(value.name, 'Element type name');
   const label = value.name;
   if (value.description !== undefined && (typeof value.description !== 'string' || value.description.length > 2000)) throw new Error(`${label}.description must be text of at most 2,000 characters.`);
@@ -107,6 +149,13 @@ function definition(value: unknown): ElementDefinition {
     occupied.add(entry); return entry;
   };
   for (const terminal of value.terminals) terminals.push(member(terminal));
+  if (value.terminalDefaults !== undefined && !object(value.terminalDefaults)) throw new Error(`${label}.terminalDefaults must be an object of local expressions.`);
+  const terminalDefaults: Record<string, string> = Object.create(null);
+  for (const [terminal, source] of Object.entries(value.terminalDefaults ?? {})) {
+    if (!terminals.includes(terminal)) throw new Error(`${label}.terminalDefaults: “${terminal}” must be a declared terminal.`);
+    if (typeof source !== 'string' || !source.trim() || source.length > 10_000) throw new Error(`${label}.terminalDefaults.${terminal} must be a nonempty expression of at most 10,000 characters.`);
+    terminalDefaults[terminal] = source.trim();
+  }
   if (value.parameters !== undefined && !object(value.parameters)) throw new Error(`${label}.parameters must be an object.`);
   const parameters: Record<string, ElementParameter> = Object.create(null);
   for (const [key, entry] of Object.entries(value.parameters ?? {})) parameters[member(key)] = parameter(entry, `${label}.${key}`);
@@ -117,13 +166,22 @@ function definition(value: unknown): ElementDefinition {
     if (!finite(entry)) throw new Error(`${label}.${key} initial guess must be finite.`);
     unknowns[key] = entry;
   }
+  if (value.terminalAliases !== undefined && !object(value.terminalAliases)) throw new Error(`${label}.terminalAliases must be an object of alias names and declared terminal names.`);
+  const terminalAliases: Record<string, string> = Object.create(null);
+  for (const [alias, terminal] of Object.entries(value.terminalAliases ?? {})) {
+    member(alias);
+    if (typeof terminal !== 'string' || !terminals.includes(terminal)) throw new Error(`${label}.terminalAliases.${alias} must name a declared terminal, not another alias.`);
+    terminalAliases[alias] = terminal;
+  }
   if (!Array.isArray(value.equations) || !value.equations.length || value.equations.length > 100
     || value.equations.some(source => typeof source !== 'string' || !source.trim() || source.length > 10_000)
-    || value.equations.join('\n').length > 50_000) throw new Error(`${label}.equations needs 1–100 mathematical statements, at most 50,000 characters in total.`);
+    || [...value.equations, ...Object.values(terminalDefaults)].join('\n').length > 50_000) throw new Error(`${label}.equations needs 1–100 mathematical statements; equations and terminal defaults use at most 50,000 characters in total.`);
   const next: ElementDefinition = {
     name: label, terminals, parameters, equations: value.equations.map(source => (source as string).trim()),
     ...(value.description !== undefined ? { description: value.description as string } : {}),
     ...(value.mode !== undefined ? { mode: value.mode as ElementDefinition['mode'] } : {}),
+    ...(value.terminalDefaults !== undefined ? { terminalDefaults } : {}),
+    ...(value.terminalAliases !== undefined ? { terminalAliases } : {}),
     ...(value.unknowns !== undefined ? { unknowns } : {}),
   };
   modelInfo(next);
@@ -156,7 +214,7 @@ export function createElementLibrary(definitions: readonly ElementDefinition[]):
   return { format: 'nonlinear-elements', version: 1, elements: parseElementLibrary({ format: 'nonlinear-elements', version: 1, elements: definitions }) };
 }
 
-export const BUILTIN_ELEMENTS = parseElementLibrary(builtinLibrary);
+export const BUILTIN_ELEMENTS = [...parseElementLibrary(nmosLibrary), ...parseElementLibrary(pmosLibrary)];
 
 function effectiveDefinitions(loaded: ElementDefinition[]): ElementDefinition[] {
   const merged = new Map(BUILTIN_ELEMENTS.map(entry => [entry.name, entry]));
@@ -178,6 +236,55 @@ export function mergeElementDefinitions(current: ElementDefinition[] | undefined
 
 export function elementDefinitions(config: Configuration): ElementDefinition[] {
   return effectiveDefinitions(createElementLibrary(config.elementDefinitions ?? []).elements);
+}
+
+function canonicalDefinition(entry: ElementDefinition): string {
+  const numeric = (value: number | undefined): number | string | null => value === undefined ? null : Object.is(value, -0) ? '-0' : value;
+  return JSON.stringify({
+    name: entry.name,
+    description: entry.description ?? '',
+    mode: entry.mode ?? 'both',
+    terminals: entry.terminals,
+    terminalDefaults: Object.entries(entry.terminalDefaults ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+    terminalAliases: Object.entries(entry.terminalAliases ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+    parameters: Object.entries(entry.parameters).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) =>
+      [key, numeric(value.value), numeric(value.step), numeric(value.min), numeric(value.max)]),
+    unknowns: Object.entries(entry.unknowns ?? {}).sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => [key, numeric(value)]),
+    equations: entry.equations,
+  });
+}
+
+/** Workspace snapshots also contain bundled definitions. Classify their actual
+ * content rather than treating every saved definition as a custom replacement. */
+export function elementLibraryEntries(config: Configuration): ElementLibraryEntry[] {
+  const defaults = new Map(createElementLibrary(BUILTIN_ELEMENTS).elements.map(entry => [entry.name, entry]));
+  return elementDefinitions(config).map(entry => {
+    const bundled = defaults.get(entry.name);
+    return {
+      definition: entry,
+      origin: bundled ? canonicalDefinition(entry) === canonicalDefinition(bundled) ? 'default' : 'replacement' : 'imported',
+      ...(bundled ? { defaultDefinition: bundled } : {}),
+    };
+  });
+}
+
+/** Replace the selected type without changing any existing instance type names.
+ * Validation and aggregate limits finish before the caller updates its config. */
+export function replaceElementDefinition(current: ElementDefinition[] | undefined, targetName: string, replacement: ElementDefinition): ElementDefinition[] {
+  name(targetName, 'Element type name');
+  const loaded = createElementLibrary(current ?? []).elements;
+  if (!effectiveDefinitions(loaded).some(entry => entry.name === targetName)) throw new Error(`Element type “${targetName}” is not available to replace.`);
+  const incoming = definition(replacement);
+  return mergeElementDefinitions(loaded, [{ ...incoming, name: targetName }]);
+}
+
+/** Removing a bundled replacement reveals its original definition. Imported
+ * types disappear; the resulting snapshot must still fit the library limits. */
+export function removeElementDefinition(current: ElementDefinition[] | undefined, typeName: string): ElementDefinition[] {
+  name(typeName, 'Element type name');
+  const loaded = createElementLibrary(current ?? []).elements.filter(entry => entry.name !== typeName);
+  effectiveDefinitions(loaded);
+  return loaded;
 }
 
 function displayVariables(source: string): string[] {
@@ -256,7 +363,7 @@ export function expandElements(config: Configuration, declarations: ElementDecla
         if (!symbol.includes('.')) continue;
         const { entry, field, instance } = member(symbol, false);
         active.add(instance);
-        if (connected.includes(symbol)) entry.connected.add(field);
+        if (connected.includes(symbol)) entry.connected.add(entry.model.aliases.get(field) ?? field);
       }
     } catch (error) { throw new Error(at(usage.location, message(error))); }
   }
@@ -265,7 +372,7 @@ export function expandElements(config: Configuration, declarations: ElementDecla
     if (!active.has(instance)) continue;
     const mode = model.definition.mode ?? 'both';
     if ((mode === 'real' && config.solver.complex) || (mode === 'complex' && !config.solver.complex)) throw new Error(at(declaration.location, `Element “${instance}” (${declaration.type}) requires ${mode} mode. ${mode === 'real' ? 'Disable' : 'Enable'} Complex mode in Solver settings.`));
-    const missing = model.definition.terminals.filter(terminal => !connected.has(terminal));
+    const missing = model.definition.terminals.filter(terminal => !connected.has(terminal) && !model.defaults.has(terminal));
     if (missing.length) throw new Error(at(declaration.location, `Element “${instance}” has unconnected terminal${missing.length === 1 ? '' : 's'}: ${missing.map(terminal => `${instance}.${terminal}`).join(', ')}. Connect each terminal in an equation.`));
     for (const [field, value] of Object.entries(model.definition.parameters)) {
       const symbol = `${instance}.${field}`;
@@ -275,6 +382,10 @@ export function expandElements(config: Configuration, declarations: ElementDecla
       const symbol = `${instance}.${field}`;
       if (!overrides.has(symbol)) generated.push({ name: symbol, kind: 'unknown', value });
     }
+    for (const [terminal, expression] of model.defaults) if (!connected.has(terminal)) {
+      equations.push(`${instance}.${terminal} = ${qualified(expression.node, instance, model.members)};`);
+    }
+    for (const [alias, terminal] of model.aliases) equations.push(`${instance}.${alias} = ${instance}.${terminal};`);
     equations.push(...model.statements.map(entry => expandStatement(entry, instance, model.members)));
   }
   return { equations, variables: generated };

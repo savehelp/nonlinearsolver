@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm, mkdir, readdir, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { deepStrictEqual } from 'node:assert/strict';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const profile = await mkdtemp(join(tmpdir(), 'nonlinear-standalone-'));
@@ -230,20 +232,27 @@ try {
   await call('Browser.setDownloadBehavior',{behavior:'allow',downloadPath});
   await evaluate(`document.querySelector('[aria-label="Workspace settings"]').click()`);
   await until(()=>evaluate(`!!document.querySelector('.settings-dropdown')`),'settings');
-  await evaluate(`[...document.querySelectorAll('.settings-dropdown button')].find(button=>button.textContent==='Export JSON').click()`);
-  const exportedPath=await until(async()=>{const files=await readdir(downloadPath);const file=files.find(file=>file.endsWith('.json'));return file&&join(downloadPath,file)},'JSON export');
-  const exported=JSON.parse(await readFile(exportedPath,'utf8'));
-  if(exported.name!==config.name || exported.version!==2 || JSON.stringify(exported.tabs)!==JSON.stringify(config.tabs) || exported.variables || exported.equations || exported.settings.axes) throw new Error('Exported workspace mismatch');
+  await evaluate(`[...document.querySelectorAll('.settings-dropdown button')].find(button=>button.textContent==='Export ZIP').click()`);
+  const exportedPath=await until(async()=>{const files=await readdir(downloadPath);const file=files.find(file=>file.endsWith('.zip'));return file&&join(downloadPath,file)},'ZIP export');
+  const entries=unzipSync(await readFile(exportedPath));
+  const exported=JSON.parse(strFromU8(entries['workspace.json']));
+  if(exported.name!==config.name || exported.version!==3 || !Array.isArray(exported.elementFiles) || exported.elements || JSON.stringify(exported.tabs)!==JSON.stringify(config.tabs) || exported.variables || exported.equations || exported.settings.axes) throw new Error('Exported workspace mismatch');
   exported.name='Imported offline'; exported.tabs[0].source=exported.tabs[0].source.replace('y = a*x+b;','y = a*x+b+7;');
-  const importPath=join(profile,'import.json'); await writeFile(importPath,JSON.stringify(exported));
+  entries['workspace.json']=strToU8(JSON.stringify(exported));
+  const importPath=join(profile,'import.zip'); await writeFile(importPath,zipSync(entries));
+  await evaluate(`document.querySelector('[aria-label="Workspace settings"]').click()`);
+  await until(()=>evaluate(`!!document.querySelector('.settings-dropdown')`),'settings before import');
+  await evaluate(`[...document.querySelectorAll('.settings-dropdown button')].find(button=>button.textContent==='Import').click()`);
+  await until(()=>evaluate(`!!document.querySelector('input[aria-label="Workspace ZIP file"]')`),'workspace import panel');
   const document=await call('DOM.getDocument');
-  const input=await call('DOM.querySelector',{nodeId:document.root.nodeId,selector:'input[type="file"]'});
+  const input=await call('DOM.querySelector',{nodeId:document.root.nodeId,selector:'input[aria-label="Workspace ZIP file"]'});
   await call('DOM.setFileInputFiles',{nodeId:input.nodeId,files:[importPath]});
-  await until(()=>evaluate(`document.querySelector('.calculation-status')?.textContent === '6 slices complete' && document.querySelector('.plot')?.data?.some(trace=>trace.customdata?.some(point=>point?.values?.y===point.values.x+7))`),'JSON import');
+  await until(()=>evaluate(`document.querySelector('.calculation-status')?.textContent === '6 slices complete' && document.querySelector('.plot')?.data?.some(trace=>trace.customdata?.some(point=>point?.values?.y===point.values.x+7))`),'ZIP import');
   await evaluate(`document.querySelector('[aria-label="Workspace settings"]').click()`);
   await evaluate(`[...document.querySelectorAll('.settings-dropdown button')].find(button=>button.textContent==='Save workspace').click()`);
   const saved = await evaluate(`JSON.parse(localStorage.getItem('node-workbench-v2'))`);
-  if (JSON.stringify(saved)!==JSON.stringify(exported)) throw new Error('Saved workspace mismatch');
+  const {elementFiles,...main}=exported;
+  deepStrictEqual(saved,{...main,version:2,elements:elementFiles.flatMap(path=>JSON.parse(strFromU8(entries[path])).elements)});
   await evaluate(`location.reload()`);
   await until(()=>evaluate(`document.querySelector('.calculation-status')?.textContent === '6 slices complete' && document.querySelector('.plot')?.data?.some(trace=>trace.customdata?.some(point=>point?.values?.y===point.values.x+7))`),'saved workspace reload');
   await capture('multiple-tabs');
@@ -257,7 +266,8 @@ try {
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   const remoteRequests=network.filter(url=>/^https?:/.test(url));
   if (errors.length || remoteRequests.length) throw new Error(JSON.stringify({errors,remoteRequests}));
-  console.log(JSON.stringify({stage:'complete',fileURL:await evaluate('location.href'),errors:errors.length,remoteRequests:remoteRequests.length,inspector:true,jsonRoundtrip:true}));
+  console.log(JSON.stringify({stage:'complete',fileURL:await evaluate('location.href'),errors:errors.length,remoteRequests:remoteRequests.length,inspector:true,zipRoundtrip:true}));
+  if (process.argv.includes('--dev')) {
   const {createServer}=await import('vite');
   dev=await createServer({server:{host:'127.0.0.1',port:5174,strictPort:false}}); await dev.listen();
   const address=dev.httpServer.address();
@@ -268,6 +278,7 @@ try {
   if(development.traces.some(trace=>trace.values.some(point=>Math.abs(point.y-point.x)>1e-8)))throw new Error('Development plot mismatch');
   if(errors.length)throw new Error(JSON.stringify(errors));
   console.log(JSON.stringify({stage:'development',status:development.status,workers:development.workers,errors:errors.length}));
+  }
 } catch(error) {
   console.error(error);
   if (socket?.readyState === WebSocket.OPEN) console.error(JSON.stringify({body:await evaluate('document.body.innerText').catch(()=>''),data:await evaluate(plotData).catch(()=>null),errors}));

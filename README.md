@@ -10,7 +10,7 @@ A browser-based nonlinear algebraic equation solver built with TypeScript, React
 2. Open the downloaded file in **Chrome or Edge**. If your editor shows the HTML source, open the file in your browser instead.
 3. Start editing equations or choose an example from the settings gear.
 
-The checked-in file is ready to use: no installation, build, Node.js, or local server is required. It includes the app, styles, solver worker, and bundled element library, and works offline. You can copy or share this single HTML file. To share your own equations and custom element definitions, also export your workspace as JSON from Settings.
+The checked-in file is ready to use: no installation, build, Node.js, or local server is required. It includes the app, styles, solver worker, and bundled element library, and works offline. You can copy or share this single HTML file. To share your own equations and custom element definitions, also export your workspace as a ZIP from Settings.
 
 ### 2. Run with Vite
 
@@ -41,7 +41,7 @@ In Windows PowerShell, use `npm.cmd` if an execution policy blocks `npm.ps1`. VS
 4. **Choose plot coordinates.** Write `plot y` to use the traversal parameter on X, or `plot y x` to choose both coordinates. Y always comes first. Add a command for each curve, and use parentheses around expressions containing spaces in the two-coordinate form. All curves follow the same traversal order and share one X scale and one Y scale.
 5. **Run and inspect.** Auto-run recomputes after valid model edits. Turn it off to run manually with **Run**. Source errors identify their tab and line; click the status above the graph for diagnostics. Click a plotted point to inspect values, residuals, and its Jacobian. Open the **Constants** tab beside Diagnostics to inspect fixed parameters, folded assignments, and reference-line positions before solving.
 6. **Adjust the view.** Scroll to zoom, drag to pan, and use the graph toolbar to reset or export SVG. In **Settings → Graph settings**, turn **Autoscale** off to enter the four axis bounds. Bounds must be finite, with each minimum below its maximum. Panning or zooming also switches to manual bounds; enable Autoscale to fit the data again. Graph view changes do not recompute the sweep. Drag panel dividers to resize them; double-click a divider to collapse a panel and use its visible rail to reopen it.
-7. **Save or share your work.** **Save workspace** stores one workspace in this browser. **Export JSON** creates a portable copy containing source tabs, settings, and element definitions; **Import JSON** restores it. To add reusable equation models, use **Settings → Elements → Load element JSON**. **Solver settings** controls complex mode and convergence options; **Sweep settings** summarizes the selected dimensions.
+7. **Save or share your work.** **Save workspace** stores one workspace in this browser. **Export ZIP** creates a portable archive containing `workspace.json` and separate element JSON files. **Import** opens a panel where you can drop that ZIP or its extracted workspace folder; use **Choose ZIP** or **Choose folder** to browse instead. To add reusable equation models, use **Settings → Elements → Load element JSON**. **Solver settings** controls complex mode and convergence options; **Sweep settings** summarizes the selected dimensions.
 
 Undeclared names used in equations are inferred as unknowns with a zero initial guess. Add `unknown name guess` when you want to supply a guess. Ordinary plot commands do not introduce new unknowns; qualified element members such as `M1.id` activate their declared model. Parameters stay fixed during each solve, while their sweep selections determine which values are sampled.
 
@@ -89,7 +89,15 @@ plot y
 
 ### Element libraries
 
-Open the **Elements** tab in Settings to inspect the available element types, load an element JSON library, or download definitions to edit and share. The supplied [NMOSFET library](./elements/nmosfet.json) contains the device equations and default parameters as data. Imported types with the same name replace that type for the current workspace. Saving or exporting a workspace includes its loaded definitions, so recipients can use custom elements without importing a second file.
+Open **Settings → Elements** to manage default and imported element types. Each type is labeled **Default**, **Custom replacement**, or **Imported** and shows its terminals, parameters, and equations. The supplied [NMOSFET](./elements/nmosfet.json) and [PMOSFET](./elements/pmosfet.json) libraries contain the device equations and default parameters as data. All manager changes affect the current workspace; saving keeps its definitions locally, and exporting a workspace ZIP includes each available type as a separate JSON file for reopening or sharing.
+
+- **Load element JSON** adds the file's types by name. A matching name replaces the existing type.
+- **Replace NMOSFET JSON** replaces the named type while keeping its name, so existing `element NMOSFET M1` declarations use the new model even if the file calls it `MyMOS`. A matching type in a multi-type file is used; otherwise choose the replacement type and select **Apply replacement**.
+- **Edit NMOSFET JSON** opens the definition in the manager. **Save changes** validates exactly one definition with the same name. To add a type with another name, use Load instead. **Cancel editing** discards the draft.
+- **Restore NMOSFET default** removes a custom replacement and restores the bundled model. **Remove Gain** removes an imported type. Existing source that uses a removed type needs that definition loaded again or its declarations changed.
+- **Download library JSON** exports all effective types; a type's **Download … JSON** button exports just that definition.
+
+The action names use the selected type's name. Invalid JSON or an invalid definition is rejected before the library changes. A valid replacement can still conflict with a circuit that expects different members or terminals; the manager shows **Workspace needs attention**, and the accepted definition remains available to edit, replace, or restore. Instance declarations such as `parameter M1.VTO .65` take precedence over library defaults. These changes are saved per workspace and do not modify other workspaces or downloaded files.
 
 Declare an instance with `element Type instance`. Its type must be available in the element library. A declaration alone adds no equations or unknowns. Referencing one of its members in math or a plot activates its complete model once. Instances and connections can appear in any source tab, in any order. Removing the final member use removes that instance's generated model.
 
@@ -100,7 +108,7 @@ element NMOSFET M1
 parameter vin 0 .1 0 3.3 sweep
 parameter Vdd 3.3
 parameter R1 2200
-parameter M1.VTH .7
+parameter M1.VTO .7
 
 M1.g = vin;
 M1.s = 0;
@@ -112,9 +120,17 @@ plot M1.d
 plot M1.id*1e3
 ```
 
-`M1.g`, `M1.d`, and `M1.s` are the required gate, drain, and source terminals. `M1.id` is drain-to-source current; `M1.vgs` and `M1.vds` are model-defined members. The example's two curves share a Y scale, with current displayed in milliamps. The supplied model describes a forward-biased, three-terminal DC NMOS with nonnegative drain-source voltage; it is a simple square-law model, with no body effect or AC capacitances. Circuit connection and current-balance equations remain explicit. For example, a separate name `ID` refers to this current only after adding `ID = M1.id;`.
+`M1.g`, `M1.d`, `M1.s`, and `M1.b` are the gate, drain, source, and body connections. These external pins stay fixed while the model selects its internal source from their voltages: the lower-voltage pin for NMOS and the higher-voltage pin for PMOS. `M1.id` always has the drain-to-source reference, so a negative value means conventional current flows from the named source toward the named drain. For NMOS this is reverse channel operation; normal PMOS operation already has negative drain current. `M1.vgs = M1.g - M1.s`, `M1.vds = M1.d - M1.s`, and `M1.vsb = M1.s - M1.b` retain their fixed-pin signs. The example's curves share a Y scale, with current displayed in milliamps. Circuit connection and current-balance equations remain explicit. For example, a separate name `ID` refers to this current only after adding `ID = M1.id;`.
 
-Each instance gets its own parameters and internal variables. Override a parameter with `parameter M1.VTH .65`, supply a solver guess with `unknown M1.id .001`, or give an element parameter the ordinary step/range/`sweep` options. Parameter and guess declarations alone do not activate an unused instance. All required terminals of an active instance must appear in external equations. Unknown instances, misspelled members, parameter/unknown kind mismatches, and incompatible real/complex modes produce errors. `=` retains its ordinary simultaneous-equation meaning; source order never changes a terminal's value.
+KCL uses the same signs throughout a voltage reversal: current leaving the drain node through the device is `+M1.id`, and current leaving the source node through the device is `-M1.id`. The internal source/drain selection does not change those external references. Earlier `t1`/`t2` aliases remain accepted for existing workspaces; use `d`/`s` for new circuits.
+
+Both bundled types use a Shichman–Hodges (PSpice Level 1) channel model with body effect and `LAMBDA = CLM_C/(L - 2*LD)`. They use the supplied NFET4 and PFET4 process values, with default width `W = 1u` and length `L = .5u`. `UO` uses cm²/(V·s); geometry uses metres, and `CLM_C` uses m/V. `VTO` is the signed zero-body-bias threshold; `VTH` is the computed threshold based on the active source's body bias. `source_voltage` and `drain_voltage` expose the selected terminal voltages; `channel_vgs`, `channel_vds`, and `channel_vsb` use the selected source and normalized NMOS/PMOS polarity. `K`, `KP`, `Cox`, `Leff`, and `LAMBDA` are also computed members. Override inputs such as `parameter M1.VTO .65` or `parameter M1.W 2u`; do not declare computed members as parameters. See the [model reference](./docs/mosfet-model.md) for all defaults and equations.
+
+The models support either direction of channel current, including continuous current and first voltage derivatives where the drain and source voltages cross. Body terminal `M1.b` defaults to the fixed `M1.s` pin; this connection does not move when the active source changes. For a bidirectional circuit, connect body explicitly at or below both conduction terminals for NMOS, or at or above both for PMOS. The models reject forward-biased body junctions because body-diode currents are omitted. They also omit capacitances, subthreshold conduction, and temperature variation. Complex mode must be disabled. The **MOS elements · bidirectional channel** example sweeps both transistor types through a drain/source-voltage crossing using `d`/`s` and explicit bodies. The **PMOS element · resistor load** example connects its s pin to `Vdd`; its current plot uses `-M1.id` to show positive supply-current magnitude in that circuit.
+
+Saved workspaces retain their element definitions, including older versions of the NMOS model. Exporting a restored workspace carries those versions into the ZIP's separate element files. To adopt the new bundled model, use **Settings → Elements → Restore NMOSFET default** (and the equivalent for PMOS). Old source overrides of `M1.VTH`, `M1.K`, or `M1.LAMBDA` must be removed or changed to input parameters such as `M1.VTO`, `M1.W`, and `M1.CLM_C` when adopting the new definition.
+
+Each instance gets its own parameters and internal variables. Supply a solver guess with `unknown M1.id .001`, or give an element parameter the ordinary step/range/`sweep` options. Parameter and guess declarations alone do not activate an unused instance. All required terminals of an active instance must appear in external equations. Unknown instances, misspelled members, parameter/unknown kind mismatches, and incompatible real/complex modes produce errors. `=` retains its ordinary simultaneous-equation meaning; source order never changes a terminal's value.
 
 To add another element type, load a JSON file with this shape:
 
@@ -137,9 +153,13 @@ To add another element type, load a JSON file with this shape:
 
 After loading it, use `element Gain A1`, connect `A1.input = signal;`, and plot `A1.output` against your selected traversal parameter. Use `parameter A1.gain 3` to replace the default gain. This also works with complex unknowns when Complex mode is enabled; parameters and plotted coordinates still follow the normal real-value rules.
 
-An element definition has a unique `name`, required `terminals`, numeric `parameters`, and mathematical `equations`. `description`, `mode`, and an `unknowns` map of initial guesses are optional. Each parameter has a finite numeric `value`, with optional `step`, `min`, and `max` slider settings. `mode` is `real`, `complex`, or `both`, defaulting to `both`. Equations may include the ordinary validity conditions. Members are terminal names, parameter names, explicit unknowns, and simple assignment targets such as `output`; dependencies must use these local names or built-in mathematical constants. Their instance prefix is supplied automatically. Element equations use the same safe math parser as source equations and cannot contain declarations, plot commands, or JavaScript. Names are simple identifiers inside the JSON; dotted instance names are used in workspace source. Files must be smaller than 1 MB and are validated before any definitions are applied.
+An element definition has a unique `name`, `terminals`, numeric `parameters`, and mathematical `equations`. `description`, `mode`, and an `unknowns` map of initial guesses are optional. Each parameter has a finite numeric `value`, with optional `step`, `min`, and `max` slider settings. `mode` is `real`, `complex`, or `both`, defaulting to `both`. Equations may include the ordinary validity conditions. Members are terminal names, parameter names, explicit unknowns, and simple assignment targets such as `output`; dependencies must use these local names or built-in mathematical constants. Their instance prefix is supplied automatically. Element equations use the same safe math parser as source equations and cannot contain declarations, plot commands, or JavaScript. Names are simple identifiers inside the JSON; dotted instance names are used in workspace source. Files must be smaller than 1 MB and are validated before any definitions are applied.
 
-The library is embedded in the standalone HTML, so the supplied element works offline. Loading custom element JSON also works directly from `dist/index.html`, with no server or network fetch.
+Terminals require external circuit equations unless the definition supplies a `terminalDefaults` expression. For example, a four-terminal model with `"terminalDefaults": { "b": "s" }` connects its body to its fixed s pin by default. Writing `M1.b = 0;` suppresses that fallback and connects the body explicitly. A plot, validity check, or initial guess alone keeps the fallback. Defaults use local member names and cannot be circular.
+
+An optional `terminalAliases` map supplies additional names for declared terminals. For example, `"terminalAliases": { "sense": "input" }` lets either `A1.sense = node;` or `A1.input = node;` connect the same terminal of a custom element. Aliases are simple local identifiers, must target a declared terminal directly, and cannot collide with other members or form alias chains. An alias also counts as a connection when deciding whether to apply a terminal default. It adds no independent terminal or extra physical equation. Avoid writing the same connection under both names, since ordinary duplicate equations can overconstrain the system.
+
+The libraries are embedded in the standalone HTML, so the supplied elements work offline. Loading custom element JSON also works directly from `dist/index.html`, with no server or network fetch.
 
 ### Transition lines
 
@@ -233,19 +253,33 @@ Long sweeps populate the graph as samples finish, with previews sent at most abo
 
 The supplied [resistor-noise regression workspace](./src/core/fixtures/resistor-noise.json) is an acyclic assignment chain spanning resistances, frequency, and signals around `1e-13`. Its defined domain has `Stot = k*T/C = 4.14e-13`; `S3/S4 = R4/R3`, so `S3` and `S4` overlap exactly when `R3 = R4`. Hide either legend entry to inspect the other. Zero `R3` or `R4`, and simultaneous zero `R1` and `R2`, leave divisions by zero in the original equations. Those coordinates remain diagnostic gaps; positive resistance minima exclude them.
 
-## Workspace JSON
+## Workspace ZIP and folders
 
-Saved and exported workspaces use version 2. The ordered `tabs` array stores each tab's stable `id`, `title`, and exact `source` text, so equations, unknowns, parameters, elements, comments, whitespace, and unfinished drafts stay in their original tabs and positions. Loaded element definitions are included with the workspace. `settings` contains solver options and the saved sweep configuration. `set_time_axis` in tab source chooses the main traversal parameter, `plot` commands determine each curve's displayed coordinates, and `plot_x_transition` / `plot_y_transition` commands define graph reference lines. `settings.sweep.parameter` retains the saved sweep selection. Parameter ranges, starts, steps, and slice selections come from the declarations rather than duplicate JSON tables.
+**Export ZIP** downloads a portable archive with this layout:
+
+```text
+example.zip
+├── workspace.json
+└── elements/
+    ├── NMOSFET.json
+    ├── PMOSFET.json
+    └── Gain.json
+```
+
+`workspace.json` uses version 3 and lists its element files in `elementFiles`. Each listed file uses the existing `nonlinear-elements` version 1 format and contains one type, so it can also be loaded independently through **Settings → Elements → Load element JSON**. Export includes every available default, custom replacement, and imported type, even types unused by the source. This keeps the workspace's model definitions available when it is reopened on another copy of the app. Filenames may receive a prefix when needed to distinguish names that differ only in letter case; `elementFiles` records the actual paths.
+
+The ordered `tabs` array stores each tab's stable `id`, `title`, and exact `source` text, so equations, unknowns, parameters, elements, comments, whitespace, and unfinished drafts stay in their original tabs and positions. Element equations are stored only in their separate JSON files. `settings` contains solver options and the saved sweep configuration. `set_time_axis` in tab source chooses the main traversal parameter, `plot` commands determine each curve's displayed coordinates, and `plot_x_transition` / `plot_y_transition` commands define graph reference lines. `settings.sweep.parameter` retains the saved sweep selection. Parameter ranges, starts, steps, and slice selections come from the declarations rather than duplicate JSON tables.
 
 ```json
 {
   "format": "nonlinear-workbench",
-  "version": 2,
+  "version": 3,
   "name": "Example",
   "description": "",
   "tabs": [
     { "id": "model", "title": "Model", "source": "unknown y\nparameter x 0 1 -2 2 sweep\ny = 2*x;\nset_time_axis x\nplot y" }
   ],
+  "elementFiles": ["elements/NMOSFET.json", "elements/PMOSFET.json", "elements/Gain.json"],
   "settings": {
     "solver": { "tolerance": 1e-9, "iterations": 100, "starts": 12 },
     "sweep": { "mode": "free", "parameter": "x" }
@@ -253,13 +287,19 @@ Saved and exported workspaces use version 2. The ordered `tabs` array stores eac
 }
 ```
 
-Only version 2 workspaces are supported for importing, saving, and exporting. Unversioned and previous workspace formats are rejected. Solver inputs are compiled from source on load, and invalid drafts remain visible with solving paused until corrected.
+**Import** accepts either the ZIP or an extracted workspace folder with the same layout. Its drop area detects which you provide. Browsers use separate file and folder pickers, so **Choose ZIP** and **Choose folder** select the corresponding form within the same import panel. Choose the folder containing `workspace.json` and `elements/`, rather than selecting `workspace.json` alone. ZIPs may be up to 2 MB; extracted workspaces may contain up to 128 files and 8 MB of data in total.
 
-Impose/release sweep mode is deprecated and no longer offered in the settings controls. Existing version 2 workspaces retain their saved mode, imposed unknown, range, point count, logarithmic setting, and released parameter under `settings.sweep` for legacy compatibility; loading or saving does not silently convert them. To migrate, create a new equation workspace, copy the model, and configure a declared parameter with `sweep` and `set_time_axis`. Unknowns then solve normally at each parameter value.
+Both forms use the same version 3 workspace format and load element files before compiling the workspace source. A missing element file, duplicate type, malformed definition, or unsupported version rejects the import and leaves the current workspace intact. Valid JSON containing an unfinished mathematical draft still opens for correction with solving paused. Individual element import/export remains JSON.
+
+To edit an exported workspace outside the app, extract it and edit `workspace.json` or an element JSON file. Import the extracted folder directly, or ZIP its contents again with `workspace.json` at the ZIP root. Keep the element paths unchanged, or update `elementFiles` to match. Add one file and one `elementFiles` entry for each new type. Do not ZIP an extra enclosing folder around the workspace contents.
+
+**Save workspace** continues to store version 2 JSON with embedded definitions in browser storage. Existing browser saves still restore, and exporting one produces the new ZIP layout. Unversioned and unsupported workspace formats are rejected.
+
+Impose/release sweep mode is deprecated and no longer offered in the settings controls. Existing browser saves retain their saved mode, imposed unknown, range, point count, logarithmic setting, and released parameter under `settings.sweep` for legacy compatibility; saving, ZIP export, and ZIP or folder import do not silently convert them. To migrate, create a new equation workspace, copy the model, and configure a declared parameter with `sweep` and `set_time_axis`. Unknowns then solve normally at each parameter value.
 
 ## Tests
 
-After building, `npm run test:browser` runs the standalone and development browser smoke checks on Windows with Microsoft Edge. It verifies offline solving, slice selection, point inspection, workspace export/import, and browser save/reload. Add `-- --screenshots` to capture desktop, settings, and narrow-screen previews in a temporary folder.
+After building, `npm run test:browser:zip` checks workspace ZIP download, ZIP and extracted-folder import, edits to separate element files, browser save/reload, individual element JSON loading, and rejection of incomplete workspaces. It opens the standalone HTML in Microsoft Edge on Windows without starting a server. `npm run test:browser` runs the broader standalone browser checks; add `-- --screenshots` for previews in a temporary folder, or `-- --dev` to explicitly include a development-server check.
 
 [src/core/solver.test.ts](./src/core/solver.test.ts) checks parsing and security rejection, engineering notation, linear/nonlinear known solutions, root deduplication, constraints and bounds, dependency cycles, piecewise boundaries, failed solves, branch gaps, arbitrary plot coordinates, legacy logarithmic/constrained sweep compatibility, transistor sweep coverage, the analytic zero-lambda NMOS result, and JSON imports.
 

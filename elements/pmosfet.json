@@ -1,0 +1,55 @@
+{
+  "format": "nonlinear-elements",
+  "version": 1,
+  "elements": [
+    {
+      "name": "PMOSFET",
+      "description": "PFET4 Level 1 (Shichman-Hodges) bidirectional DC channel model with body effect and lambda = CLM_C/Leff. id is signed from the fixed d pin to the fixed s pin and is negative in normal PMOS operation. The higher-voltage channel pin acts as internal source; the roles swap automatically when d > s. b defaults to the fixed s pin unless connected explicitly; body must satisfy b >= max(d,s). W, L, LD and TOX are in metres; UO is in cm^2/(V*s); CLM_C is in m/V. No capacitances, body-diode currents, subthreshold conduction or temperature dependence.",
+      "mode": "real",
+      "terminals": ["g", "d", "s", "b"],
+      "terminalAliases": { "t1": "d", "t2": "s" },
+      "terminalDefaults": { "b": "s" },
+      "parameters": {
+        "VTO": { "value": -0.8 },
+        "GAMMA": { "value": 0.4 },
+        "PHI": { "value": 0.8 },
+        "W": { "value": 1e-6 },
+        "L": { "value": 0.5e-6 },
+        "LD": { "value": 0.09e-6 },
+        "UO": { "value": 100 },
+        "TOX": { "value": 9e-9 },
+        "CLM_C": { "value": 0.064e-6 }
+      },
+      "unknowns": { "id": -0.0005 },
+      "equations": [
+        "Leff = L - 2*LD",
+        "Cox = 3.9*8.854214871e-12/TOX",
+        "KP = UO*1e-4*Cox",
+        "K = KP*W/Leff",
+        "LAMBDA = CLM_C/Leff",
+        "vgs = g - s",
+        "vds = d - s",
+        "vsb = s - b",
+        "source_voltage = max(d,s)",
+        "drain_voltage = min(d,s)",
+        "channel_vgs = source_voltage - g",
+        "channel_vds = abs(vds)",
+        "channel_vsb = b - source_voltage",
+        "sqrt_phi = sqrt(PHI)",
+        "body_root = if(channel_vsb >= 0, sqrt(PHI + channel_vsb), max(0, sqrt_phi + channel_vsb/(2*sqrt_phi)))",
+        "VTH = VTO - GAMMA*(body_root - sqrt_phi)",
+        "vov = channel_vgs + VTH",
+        "id = if(vds >= 0, 1, -1) * if(vov <= 0, 0, if(channel_vds < vov, K * (vov*channel_vds - channel_vds^2/2) * (1 + LAMBDA*channel_vds), K/2 * vov^2 * (1 + LAMBDA*channel_vds)))",
+        "channel_vsb >= 0",
+        "W > 0",
+        "Leff > 0",
+        "LD >= 0",
+        "UO > 0",
+        "TOX > 0",
+        "PHI > 0",
+        "GAMMA >= 0",
+        "CLM_C >= 0"
+      ]
+    }
+  ]
+}

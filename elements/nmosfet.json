@@ -4,20 +4,51 @@
   "elements": [
     {
       "name": "NMOSFET",
-      "description": "Three-terminal forward DC square-law NMOS model. id is positive from drain to source. Source must be connected explicitly; body effects are not modeled. Valid for vds >= 0.",
+      "description": "NFET4 Level 1 (Shichman-Hodges) bidirectional DC channel model with body effect and lambda = CLM_C/Leff. id is signed from the fixed d pin to the fixed s pin. The lower-voltage channel pin acts as internal source; the roles swap automatically when s > d. b defaults to the fixed s pin unless connected explicitly; body must satisfy b <= min(d,s). W, L, LD and TOX are in metres; UO is in cm^2/(V*s); CLM_C is in m/V. No capacitances, body-diode currents, subthreshold conduction or temperature dependence.",
       "mode": "real",
-      "terminals": ["g", "d", "s"],
+      "terminals": ["g", "d", "s", "b"],
+      "terminalAliases": { "t1": "d", "t2": "s" },
+      "terminalDefaults": { "b": "s" },
       "parameters": {
-        "VTH": { "value": 0.7 },
-        "K": { "value": 0.001 },
-        "LAMBDA": { "value": 0.02 }
+        "VTO": { "value": 0.7 },
+        "GAMMA": { "value": 0.45 },
+        "PHI": { "value": 0.9 },
+        "W": { "value": 1e-6 },
+        "L": { "value": 0.5e-6 },
+        "LD": { "value": 0.08e-6 },
+        "UO": { "value": 350 },
+        "TOX": { "value": 9e-9 },
+        "CLM_C": { "value": 0.034e-6 }
       },
       "unknowns": { "id": 0.0005 },
       "equations": [
+        "Leff = L - 2*LD",
+        "Cox = 3.9*8.854214871e-12/TOX",
+        "KP = UO*1e-4*Cox",
+        "K = KP*W/Leff",
+        "LAMBDA = CLM_C/Leff",
         "vgs = g - s",
         "vds = d - s",
-        "id = if(vgs <= VTH, 0, if(vds < vgs - VTH, K * ((vgs - VTH) * vds - vds^2 / 2) * (1 + LAMBDA * vds), K / 2 * (vgs - VTH)^2 * (1 + LAMBDA * vds)))",
-        "vds >= 0"
+        "vsb = s - b",
+        "source_voltage = min(d,s)",
+        "drain_voltage = max(d,s)",
+        "channel_vgs = g - source_voltage",
+        "channel_vds = abs(vds)",
+        "channel_vsb = source_voltage - b",
+        "sqrt_phi = sqrt(PHI)",
+        "body_root = if(channel_vsb >= 0, sqrt(PHI + channel_vsb), max(0, sqrt_phi + channel_vsb/(2*sqrt_phi)))",
+        "VTH = VTO + GAMMA*(body_root - sqrt_phi)",
+        "vov = channel_vgs - VTH",
+        "id = if(vds >= 0, 1, -1) * if(vov <= 0, 0, if(channel_vds < vov, K * (vov*channel_vds - channel_vds^2/2) * (1 + LAMBDA*channel_vds), K/2 * vov^2 * (1 + LAMBDA*channel_vds)))",
+        "channel_vsb >= 0",
+        "W > 0",
+        "Leff > 0",
+        "LD >= 0",
+        "UO > 0",
+        "TOX > 0",
+        "PHI > 0",
+        "GAMMA >= 0",
+        "CLM_C >= 0"
       ]
     }
   ]

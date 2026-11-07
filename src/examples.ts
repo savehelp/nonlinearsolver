@@ -19,7 +19,15 @@ export const defaultWorkspace = rcLowPass;
 export const nmosElementExample: Configuration = compileDocuments({
   ...base, name: 'NMOS element · resistor load', description: 'A reusable NMOSFET instance from the JSON element library.',
   equations: '', variables: [], axes: { x: '', y: '' }, regions: [],
-}, [{ id: 'circuit', title: 'Circuit', source: '# Drain current is positive from drain to source.\nparameter vin 0 0.05 0 3.3 sweep\nparameter Vdd 3.3\nparameter R1 2200\n\nelement NMOSFET M1\nM1.g = vin;\nM1.s = 0;\nM1.d = Vdd - M1.id*R1;\n\nset_time_axis vin\nplot M1.d\nplot (M1.id*1000)\n# Override device defaults with parameter M1.VTH 0.65' }]);
+}, [{ id: 'circuit', title: 'Circuit', source: '# Drain current has a fixed d-to-s reference.\nparameter vin 0 0.05 0 3.3 sweep\nparameter Vdd 3.3\nparameter R1 2200\n\nelement NMOSFET M1\nM1.g = vin;\nM1.s = 0;\nM1.d = Vdd - M1.id*R1;\n# Body defaults to the fixed s terminal. Add M1.b = 0; to connect it explicitly.\n\nset_time_axis vin\nplot M1.d\nplot (M1.id*1000)\n# Override inputs with parameter M1.VTO 0.65 or parameter M1.W 2u' }]);
+export const pmosElementExample: Configuration = compileDocuments({
+  ...base, name: 'PMOS element · resistor load', description: 'A PFET4 PMOS channel model with its source at Vdd and a drain resistor to ground.',
+  equations: '', variables: [], axes: { x: '', y: '' }, regions: [],
+}, [{ id: 'circuit', title: 'Circuit', source: '# PMOS drain current is negative here: it flows from s toward d.\nparameter vin 0 0.05 0 3.3 sweep\nparameter Vdd 3.3\nparameter R1 2200\n\nelement PMOSFET M1\nM1.g = vin;\nM1.s = Vdd;\nM1.d = -M1.id*R1;\n# Body defaults to the fixed s terminal (Vdd).\n\nset_time_axis vin\nplot M1.d\nplot (-M1.id*1000)\n# Override inputs with parameter M1.VTO -0.8 or parameter M1.W 2u' }]);
+export const bidirectionalMosExample: Configuration = compileDocuments({
+  ...base, name: 'MOS elements · bidirectional channel', description: 'NMOS and PMOS currents reverse as their two conduction-terminal voltages cross. Both bodies are connected explicitly.',
+  equations: '', variables: [], axes: { x: '', y: '' }, regions: [],
+}, [{ id: 'circuit', title: 'Circuit', source: '# Drain current is positive from d to s; the internal source/drain roles swap automatically.\nparameter delta 0 .05 -1 1 sweep\nparameter midpoint 1.65\nparameter Vdd 3.3\nparameter gateN 3\nparameter gateP .3\n\nleft = midpoint + delta/2;\nright = midpoint - delta/2;\n\nelement NMOSFET N1\nN1.g = gateN;\nN1.d = left;\nN1.s = right;\nN1.b = 0;\n\nelement PMOSFET P1\nP1.g = gateP;\nP1.d = left;\nP1.s = right;\nP1.b = Vdd;\n\n# Fixed bodies keep both body junctions reverse biased throughout the sweep.\nset_time_axis delta\nplot (N1.id*1000)\nplot (P1.id*1000)' }]);
 export const examples: Configuration[] = [
   { ...base, name: 'NMOS common source', description: 'A resistor-loaded NMOS, from cutoff to saturation and triode.',
     equations: '# Drain-node KCL\n(VDD - VD) / RD = ID;\n\n# Piecewise square-law model\nID = if(\n  VG <= VTH,\n  0,\n  if(\n    VD < VG - VTH,\n    K * ((VG - VTH) * VD - VD^2 / 2)\n      * (1 + LAMBDA * VD),\n    K / 2 * (VG - VTH)^2\n      * (1 + LAMBDA * VD)\n  )\n);\nVOV = VG - VTH;',
@@ -32,6 +40,8 @@ export const examples: Configuration[] = [
   { ...base, name: 'Cubic · multiple roots', description: 'Explore the three real branches of x³ − x = p and their folds.', equations: 'x^3 - x = p;\nx >= -2;\nx <= 2;', variables: [unknown('x', .8), parameter('p', 0, -.6, .6, .005)], sweep: { ...base.sweep, parameter: 'p', min: -.6, max: .6, points: 161 }, axes: { x: 'p', y: 'x' }, regions: [] },
   rcLowPass,
   nmosElementExample,
+  pmosElementExample,
+  bidirectionalMosExample,
 ];
 export const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
