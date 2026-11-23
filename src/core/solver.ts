@@ -12,10 +12,9 @@ import { equationProgram } from './equations';
 import { inferVariables } from './inference';
 import { affineRoot, affineSubstitutions, downstreamEquations } from './preprocessing';
 import { formatSampleCount } from './sweepCounts';
-import type { SampleLookup } from './sampleReuse';
 const norm = (a: number[]) => Math.max(0, ...a.map(Math.abs));
 interface Evaluation { values: Scope; complexValues?: Record<string, Complex>; residuals: number[] }
-export interface System { unknowns: Variable[]; allUnknowns?: Variable[]; equations: string[]; evaluate: (x: number[]) => Evaluation; complete?: (values: Scope) => void; direct?: () => Evaluation; directContinuous?: boolean; valid: (values: Scope) => boolean; region: (values: Scope) => string }
+export interface System { unknowns: Variable[]; allUnknowns?: Variable[]; equations: string[]; evaluate: (x: number[]) => Evaluation; complete?: (values: Scope) => void; direct?: () => Evaluation; directContinuous?: boolean; valid: (values: Scope) => boolean }
 export function prepare(config: Configuration, parameter?: number): System {
   if (config.solver.complex) return prepareComplex(config, parameter);
   if (!config.axes.x.trim() || !config.axes.y.trim()) throw new Error('Add set_time_axis parameter and plot unknown commands.');
@@ -119,7 +118,7 @@ export function prepare(config: Configuration, parameter?: number): System {
     valid: values => {
       if (useIsolation && !isolated!.validate(values, config.solver.tolerance)) throw new Error('Algebraic reduction did not satisfy the original equations.');
       return constraints.every(c => Boolean(c.evaluate(values)));
-    }, region: () => '',
+    },
   };
 }
 function linearSolve(matrix: number[][], vector: number[]): number[] | null {
@@ -162,7 +161,7 @@ export function solve(system: System, guess: number[], options: Configuration['s
     const state = system.direct();
     checkBounds(state.values);
     if (!system.valid(state.values)) throw new Error('Candidate root violates an inequality or branch validity condition.');
-    return { ...state, norm: norm(state.residuals), iterations: 0, jacobian: includeJacobian ? jacobian(system, system.unknowns.map(variable => state.values[variable.name])) : [], region: system.region(state.values) };
+    return { ...state, norm: norm(state.residuals), iterations: 0, jacobian: includeJacobian ? jacobian(system, system.unknowns.map(variable => state.values[variable.name])) : [] };
   }
   const scales = system.unknowns.map(variableScale);
   if (system.allUnknowns && guess.length !== system.unknowns.length) {
@@ -178,7 +177,7 @@ export function solve(system: System, guess: number[], options: Configuration['s
     system.complete?.(state.values);
     checkBounds(state.values);
     if (!system.valid(state.values)) throw new Error('Candidate root violates an inequality or branch validity condition.');
-    return { ...state, norm: norm(state.residuals), iterations: iteration, jacobian: includeJacobian ? derivatives ?? jacobian(system, x) : [], region: system.region(state.values) };
+    return { ...state, norm: norm(state.residuals), iterations: iteration, jacobian: includeJacobian ? derivatives ?? jacobian(system, x) : [] };
   };
   let damping = 1e-8;
   for (let iteration = 0; iteration <= options.iterations; iteration++) {
@@ -232,7 +231,7 @@ export function roots(system: System, options: Configuration['solver'], seeds: n
 export interface SweepStep { result: SweepResult; completed: number }
 export interface SweepSample { points: Point[]; failures: SweepResult['failures'] }
 /** Progress borrows the growing result. Consumers must copy new data before resuming. */
-export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: (result: SweepResult, sample: SweepSample) => void, reuse?: SampleLookup): Generator<SweepStep, SweepStep> {
+export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: (result: SweepResult, sample: SweepSample) => void): Generator<SweepStep, SweepStep> {
   const start = performance.now(), s = config.sweep;
   const centered = Object.hasOwn(s, 'step');
   let nextProgress = start + intervalMs;
@@ -245,7 +244,7 @@ export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: 
   const total = plan?.values.length ?? s.points;
   const firstSystem = prepare(config, plan ? plan.values[plan.startIndex] : s.min), curves = configurationCurves(config);
   const xCompiled = curves.map(curve => coordinateExpression(curve.x, config.solver.complex)), yCompiled = curves.map(curve => coordinateExpression(curve.y, config.solver.complex));
-  const result: SweepResult = { branches: [], failures: [], solved: 0, total, elapsed: 0, unknowns: firstSystem.unknowns.map(v => v.name), equations: firstSystem.equations, computed: 0, reused: 0 };
+  const result: SweepResult = { branches: [], failures: [], solved: 0, total, elapsed: 0, unknowns: firstSystem.unknowns.map(v => v.name), equations: firstSystem.equations };
   type Frontier = { branch: Branch; root: Root }[];
   let previous: Frontier = [], lower: Frontier = [], upper: Frontier = [], nextId = 1;
   for (let completed = 0; completed < total; completed++) {
@@ -256,9 +255,8 @@ export function* sweepSteps(config: Configuration, intervalMs = 200, onSample?: 
     const t = total === 1 ? 0 : i / (total - 1), parameter = plan ? plan.values[i] : s.logarithmic ? s.min * (s.max / s.min) ** t : s.min + (s.max - s.min) * t;
     // Dense Jacobians are computed only when inspecting a point, rather than
     // retaining an unknown-count-squared matrix at every stored sample.
-    const system = prepare(config, parameter), cached = reuse?.(parameter);
-    const found = cached ?? roots(system, config.solver, previous.map(p => system.unknowns.map(v => p.root.values[v.name])), false);
-    if (cached) result.reused!++; else result.computed!++;
+    const system = prepare(config, parameter);
+    const found = roots(system, config.solver, previous.map(p => system.unknowns.map(v => p.root.values[v.name])), false);
     const available = new Set(previous); const current: typeof previous = [];
     if (!found.roots.length) result.failures.push({ index: i, parameter, reason: found.error || 'No root found.' }); else result.solved++;
     // Continue from the adjacent point on the same side of the starting sample.

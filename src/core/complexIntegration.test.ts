@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { clone, defaultWorkspace, rcLowPass, starter } from '../examples';
 import { compileDocuments, ensureDocuments } from './documents';
 import { prepare, roots, sweep, sweepSteps } from './solver';
-import { projectSweep, solverConfiguration } from './projection';
-import { SampleReuseCache, prepareSweepReuse } from './sampleReuse';
 import { withPointJacobian } from './pointDiagnostics';
 import { modelDiagnostics } from './diagnostics';
 import { createWorkspace, loadWorkspace } from './workspace';
@@ -17,8 +15,23 @@ function model(source: string): Configuration {
 const circle = 'parameter t pi (pi/2) 0 (2*pi) sweep\nz = exp(i*t);\nset_time_axis t\nplot imag(z) real(z)\nplot abs(z)';
 
 describe('complex workspaces and real plotting', () => {
+  it('switches Auto between real and complex and preserves it on save', () => {
+    const realSource = 'parameter t 0 1 0 2 sweep\ni = t+1;\nset_time_axis t\nplot i';
+    const tabs = [{ id: 'mode', title: 'Mode', source: realSource }];
+    const real = compileDocuments(defaultWorkspace, tabs);
+    expect(real.solver.complex).toBe(false);
+    const complex = compileDocuments(real, [{ ...tabs[0], source: circle.replace('i*t', 'j*t') }]);
+    expect(complex.solver.complex).toBe(true);
+    expect(sweep(complex).failures).toEqual([]);
+    const restored = loadWorkspace(createWorkspace(complex));
+    expect(restored.solver.mode).toBe('auto');
+    expect(compileDocuments(restored, tabs).solver.complex).toBe(false);
+    expect(() => compileDocuments(complex, [{ ...tabs[0], source: realSource.replace('i = t+1;', 'i = t+j;') }])).toThrow(/reserved for the imaginary unit/);
+    expect(() => compileDocuments({ ...real, solver: { ...real.solver, mode: 'complex' } }, tabs)).toThrow(/reserved for the imaginary unit/);
+  });
+
   it('loads the RC frequency-response example and matches its analytic transfer function', () => {
-    expect(defaultWorkspace).toBe(rcLowPass);
+    expect(defaultWorkspace.solver.mode).toBe('auto');
     const example = clone(rcLowPass), config = compileDocuments(example, ensureDocuments(example)), result = sweep(config);
     expect(config.solver.complex).toBe(true); expect(config.sweep.parameter).toBe('f');
     expect(result.total).toBe(401); expect(result.failures).toEqual([]); expect(result.branches).toHaveLength(1);
@@ -85,18 +98,15 @@ describe('complex workspaces and real plotting', () => {
     expect(sweep(restored).branches).toEqual(sweep(config).branches);
   });
 
-  it('retains complex roots through raw projection, resampling reuse, and streamed updates', () => {
-    const config = model(circle), rawConfig = solverConfiguration(config), raw = sweep(rawConfig);
-    const data = prepareSweepReuse(rawConfig, { config: rawConfig, slices: [{ values: {}, result: raw }] });
-    expect(data).toBeDefined();
-    const cache = new SampleReuseCache(rawConfig, data), update = createSweepUpdates();
-    const steps = sweepSteps(rawConfig, 0, undefined, cache.forConfig(rawConfig));
+  it('retains complex roots through streamed updates', () => {
+    const config = model(circle), update = createSweepUpdates();
+    const steps = sweepSteps(config, 0);
     let merged: SweepResult | null = null, step = steps.next();
     while (!step.done) { merged = mergeSweepUpdate(merged, update(step.value.result, step.value.completed)); step = steps.next(); }
     merged = mergeSweepUpdate(merged, update(step.value.result, step.value.completed));
-    expect(merged.computed).toBe(0); expect(merged.reused).toBe(5);
-    expect(merged.branches).toEqual(raw.branches);
-    expect(projectSweep(merged, config).branches).toEqual(sweep(config).branches);
+    const complete = sweep(config);
+    expect(merged.branches).toEqual(complete.branches);
+    expect(merged.failures).toEqual(complete.failures);
   });
 
   it('uses the imposed real component for default constrained plot coordinates', () => {

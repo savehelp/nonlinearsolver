@@ -7,7 +7,7 @@ import type { Configuration } from './types';
 import { reconcileSweep } from './variables';
 import { yExpressions } from './axes';
 import { numericExpression } from './numeric';
-function generic(equations: string, unknowns = ['x']): Configuration { const c = clone(examples[2]); c.equations = equations; c.regions = []; c.variables = [...unknowns.map(name => ({ name, kind: 'unknown' as const, value: .8, min: -5, max: 5 })), { name: 'p', kind: 'parameter', value: 0, min: -1, max: 1 }]; c.axes = { x: 'p', y: unknowns[0] }; return c; }
+function generic(equations: string, unknowns = ['x']): Configuration { const c = clone(examples[2]); c.equations = equations; c.variables = [...unknowns.map(name => ({ name, kind: 'unknown' as const, value: .8, min: -5, max: 5 })), { name: 'p', kind: 'parameter', value: 0, min: -1, max: 1 }]; c.axes = { x: 'p', y: unknowns[0] }; return c; }
 describe('safe math expressions', () => {
   it('evaluates scientific notation and numeric expressions for parameter controls', () => {
     expect(numericExpression('9e-9')).toBeCloseTo(9e-9, 18);
@@ -188,7 +188,6 @@ describe('sweeps and examples', () => {
     c.variables = c.variables.filter(v => !['VTH', 'K', 'LAMBDA', 'VDD', 'RD'].includes(v.name));
     c.variables = c.variables.filter(v => v.name !== 'VOV');
     c.variables.push({ name: 'VOV', kind: 'derived', value: 0, expression: 'missing + 1' });
-    c.regions = [{ name: 'Legacy region', condition: 'missingRegionVariable > 0', color: '#ffffff' }];
     const r = sweep(c); expect(r.solved).toBe(c.sweep.points); expect(r.unknowns).toEqual(['VD']);
     expect(r.branches[0].points[0].values).not.toHaveProperty('ID');
     expect(r.branches[0].points[0].values).not.toHaveProperty('VOV');

@@ -28,13 +28,9 @@ The implementation contains considerably more than a basic Newton iteration and 
 | Diagnostics | Counts, solver dimensions, sample failures, residuals, on-demand Jacobians, fixed/folded constants, source errors | Equal counts are checked; structural matching, numerical rank estimates, conflict localization, and persistent generated-equation source maps are missing. [Diagnostics](../src/core/diagnostics.ts), [constants](../src/ConstantsPanel.tsx). |
 | Portability | Standalone offline HTML; source-preserving workspace JSON with element definitions | One locally saved workspace. No named run archive or numerical dataset exchange workflow. [Workspace format](../src/core/workspace.ts). |
 
-### Important integration gap: implemented helpers are not necessarily shipped behavior
+### Separating plot edits from numerical runs
 
-There is already tested infrastructure for separating numerical results from graph expressions: `solverConfiguration`, `solveKey`, and `projectSweep` in [projection.ts](../src/core/projection.ts#L23). [sampleReuse.ts](../src/core/sampleReuse.ts#L46) also supports bounded reuse of compatible samples at exact coordinates.
-
-However, the current App does not call the projection helpers or pass a reuse source. Its [input key](../src/App.tsx#L46) includes axes, and its [runner call](../src/App.tsx#L199) passes only configuration and delay. [SweepRunner](../src/core/sweepRunner.ts#L33) uses sample reuse only when its optional argument is supplied.
-
-Consequently, pure plot-expression edits can schedule a fresh numerical run in the current UI. Completing this integration is an unusually concrete near-term improvement. Graph-bound edits, transition-only edits, and selecting already computed slices already have display-only paths; those should remain intact.
+Plot expressions are part of the app?s calculation key, so changing a curve expression can start a fresh solve. Keeping operating points separately would allow projection over retained results and could support reusing matching samples after a grid change. Graph bounds, reference-line edits, and selecting computed slices already have display-only paths.
 
 ### Limits do not establish scalability
 
@@ -178,7 +174,7 @@ Transient behavior is a larger milestone: state variables, consistent initializa
 
 | Priority | Deliverable | Why it fits | Evidence that it is complete |
 |---|---|---|---|
-| **1: Faster everyday exploration** | Add Solve once; wire existing projection/reuse helpers; add member completion; tables/CSV; log axes and linked panes | Makes everyday equation solving and plotting easier | A fixed system solves without a plot/sweep; changing only a plotted expression starts zero numerical solves when the active model and sampling are unchanged; RC data works across frequency decades; exported numbers match inspected samples. |
+| **1: Faster everyday exploration** | Add Solve once; separate plot projection from numerical solving; add member completion; tables/CSV; log axes and linked panes | Makes everyday equation solving and plotting easier | A fixed system solves without a plot/sweep; changing only a plotted expression starts zero numerical solves when the active model and sampling are unchanged; RC data works across frequency decades; exported numbers match inspected samples. |
 | **2: Explain the model** | Stable equation IDs/source maps, role display, structural diagnostics, numerical effort counters | Supports both correctness and ease of use | A missing pin, dependent equation group, domain failure, and failed iteration produce distinct, localized feedback. |
 | **3: Improve numerical reach** | Cached stable compilation, derivative interfaces, sparse/block opportunities, scalar/adaptive rescue and branch tracking | Raises useful capability rather than only increasing limits | Benchmarks record reduced-state size, residual/Jacobian evaluations, solve time, memory, and branch correctness. |
 | **4: Grow model reuse** | Hierarchical composition, optional typed ports, units metadata, model revisions/tests, limited inheritance | Makes custom device and subsystem definitions reusable and understandable | A two-stage model can be nested, inspected, connected, saved, restored, and specialized without duplicated laws or missing conservation equations. |

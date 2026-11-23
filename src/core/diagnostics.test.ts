@@ -4,7 +4,7 @@ import type { Configuration } from './types';
 
 function model(equations: string, unknowns: string[] = ['y']): Configuration {
   return {
-    name: 'Diagnostics', description: '', equations, constraints: '', regions: [],
+    name: 'Diagnostics', description: '', equations, constraints: '',
     documents: [{ id: 'model', title: 'Model', source: equations }],
     variables: [...unknowns.map(name => ({ name, kind: 'unknown' as const, value: 1 })), { name: 'p', kind: 'parameter', value: 2 }],
     sweep: { parameter: 'p', min: 0, max: 3, points: 4, logarithmic: false, mode: 'free', release: '' },

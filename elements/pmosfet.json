@@ -4,7 +4,7 @@
   "elements": [
     {
       "name": "PMOSFET",
-      "description": "PFET4 Level 1 (Shichman-Hodges) bidirectional DC channel model with body effect and lambda = CLM_C/Leff. id is signed from the fixed d pin to the fixed s pin and is negative in normal PMOS operation. The higher-voltage channel pin acts as internal source; the roles swap automatically when d > s. b defaults to the fixed s pin unless connected explicitly; body must satisfy b >= max(d,s). W, L, LD and TOX are in metres; UO is in cm^2/(V*s); CLM_C is in m/V. No capacitances, body-diode currents, subthreshold conduction or temperature dependence.",
+      "description": "PFET4 Level 1 (Shichman-Hodges) bidirectional DC channel model with body effect and lambda = CLM_C/Leff. id is signed from the fixed s pin to the fixed d pin and is positive in normal PMOS operation. The higher-voltage channel pin acts as internal source; the roles swap automatically when d > s. b defaults to the fixed s pin unless connected explicitly; body must satisfy b >= max(d,s). W, L, LD and TOX are in metres; UO is in cm^2/(V*s); CLM_C is in m/V. No capacitances, body-diode currents, subthreshold conduction or temperature dependence.",
       "mode": "real",
       "terminals": ["g", "d", "s", "b"],
       "terminalAliases": { "t1": "d", "t2": "s" },
@@ -20,7 +20,7 @@
         "TOX": { "value": 9e-9 },
         "CLM_C": { "value": 0.064e-6 }
       },
-      "unknowns": { "id": -0.0005 },
+      "unknowns": { "id": 0.0005 },
       "equations": [
         "Leff = L - 2*LD",
         "Cox = 3.9*8.854214871e-12/TOX",
@@ -39,11 +39,11 @@
         "body_root = if(channel_vsb >= 0, sqrt(PHI + channel_vsb), max(0, sqrt_phi + channel_vsb/(2*sqrt_phi)))",
         "VTH = VTO - GAMMA*(body_root - sqrt_phi)",
         "vov = channel_vgs + VTH",
-        "id = if(vds >= 0, 1, -1) * if(vov <= 0, 0, if(channel_vds < vov, K * (vov*channel_vds - channel_vds^2/2) * (1 + LAMBDA*channel_vds), K/2 * vov^2 * (1 + LAMBDA*channel_vds)))",
+        "id = if(vds <= 0, 1, -1) * if(vov <= 0, 0, if(channel_vds < vov, K * (vov*channel_vds - channel_vds^2/2) * (1 + LAMBDA*channel_vds), K/2 * vov^2 * (1 + LAMBDA*channel_vds)))",
         "gm = K*min(channel_vds, max(0, vov))*(1 + LAMBDA*channel_vds)",
         "gds = if(vov <= 0, 0, K*(max(0, vov - channel_vds)*(1 + LAMBDA*channel_vds) + LAMBDA*min(channel_vds, vov)*(vov - min(channel_vds, vov)/2)))",
         "gmb = if(gm == 0, 0, gm*GAMMA/(2*sqrt(PHI + max(0, channel_vsb))))",
-        "isd = -id",
+        "isd = id",
         "channel_vsb >= 0",
         "W > 0",
         "Leff > 0",

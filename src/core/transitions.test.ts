@@ -206,9 +206,9 @@ describe('constant transition evaluation', () => {
   });
 
   it('does not use a solved sample to treat an unknown coordinate as a constant', () => {
-    const config = compile(plottedModel), result = sweep(config);
+    const config = compile(plottedModel);
     config.axes.transitions = [{ axis: 'x', expression: 'y' }];
-    expect(() => evaluateTransitionLines(config, result)).toThrow();
+    expect(() => evaluateTransitionLines(config)).toThrow();
   });
 
   it('rejects cyclic fixed assignments instead of evaluating an arbitrary initial value', () => {

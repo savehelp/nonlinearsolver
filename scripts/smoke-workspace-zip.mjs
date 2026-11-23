@@ -108,7 +108,7 @@ try {
   await call('Runtime.enable'); await call('Page.enable'); await call('Network.enable');
   await call('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
   await call('Page.navigate', { url: pathToFileURL(resolve('dist/index.html')).href });
-  await until(() => evaluate(`document.querySelector('.calculation-status')?.textContent === 'Sweep complete'`), 'initial RC solve');
+  await until(() => evaluate(`document.querySelector('.calculation-status')?.textContent === 'Sweep complete'`), 'initial real solve');
   await openMenu();
   const importActions = await evaluate(`[...document.querySelectorAll('.settings-dropdown button')].filter(button => button.textContent.startsWith('Import')).map(button => ({ label: button.textContent, down: !!button.querySelector('.lucide-arrow-down-to-line') }))`);
   assert(importActions.length === 1 && importActions[0].label === 'Import' && importActions[0].down, 'Import action or icon mismatch');
@@ -128,7 +128,7 @@ try {
     assert(point['N1.source_voltage'] === low && point['P1.source_voltage'] === high, 'Electrical source did not follow pin voltages');
     for (const name of ['N1', 'P1']) {
       assert(point[`${name}.d`] === point.left && point[`${name}.s`] === point.right, 'Fixed drain/source connection changed during reversal');
-      assert(Math.abs(point.delta) < 1e-12 ? Math.abs(point[`${name}.id`]) < 1e-10 : point[`${name}.id`] * point.delta > 0, 'Bidirectional current polarity mismatch');
+      assert(Math.abs(point.delta) < 1e-12 ? Math.abs(point[`${name}.id`]) < 1e-10 : point[`${name}.id`] * point.delta * (name === 'N1' ? 1 : -1) > 0, 'Bidirectional current polarity mismatch');
     }
   }
   await openMenu();

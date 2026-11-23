@@ -1,5 +1,5 @@
 import { applyDeclarations, formatDeclarations, parseDeclarations, type DeclarationKind } from './declarations';
-import { compile, residual } from './expression';
+import { compile, residual, type ExpressionNode } from './expression';
 import { equationAssignment, equationProgram } from './equations';
 import { numericExpression } from './numeric';
 import { resolveSweepBounds } from './sweepPlan';
@@ -12,7 +12,7 @@ import type { Configuration, EditorDocument, PlotTransition, Variable } from './
 export const MAX_EDITOR_DOCUMENTS = 32;
 export const MAX_DOCUMENT_SOURCE = 200_000;
 
-/** Plot drafts must not cancel a numerical solve or discard computed roots. */
+/** An invalid plot can still have a compiled model for workspace restoration. */
 export class PlotSourceError extends Error {
   readonly kind = 'plot';
   constructor(message: string, readonly config?: Configuration) { super(message); this.name = 'PlotSourceError'; }
@@ -127,7 +127,41 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
       } catch (error) { throw new Error(describe(document, part.line, (error as Error).message)); }
     }
   }
-  const expanded = expandElements(config, elements, usages, [...unknowns, ...parameters]);
+  const next = structuredClone(config);
+  if (next.solver.mode) {
+    const imaginaryNames = ['i', 'j'];
+    const defined = new Set([...unknowns, ...parameters].map(variable => variable.name));
+    const expressions = equations.flatMap(source => {
+      const program = equationProgram(source);
+      for (const equation of program.equations) {
+        const assignment = equationAssignment(equation);
+        if (assignment) defined.add(assignment.name);
+      }
+      return [...program.equations.map(residual), ...program.conditions.map(compile)];
+    });
+    for (const { part } of display) {
+      const source = part.clean.replace(/^\S+\s*/, '');
+      try {
+        if (part.kind === 'plot') {
+          for (const curve of plotArguments(source)) {
+            expressions.push(compile(curve.y));
+            if (curve.x !== undefined) expressions.push(compile(curve.x));
+          }
+        } else if (part.kind !== 'set_time_axis') expressions.push(compile(source));
+      } catch { /* Display errors are reported with their source location below. */ }
+    }
+    function usesComplexConstructor(node: ExpressionNode): boolean {
+      if (node.type === 'call') return node.name === 'complex' || node.args.some(usesComplexConstructor);
+      if (node.type === 'binary') return usesComplexConstructor(node.left) || usesComplexConstructor(node.right);
+      return node.type === 'unary' && usesComplexConstructor(node.arg);
+    }
+    const usesComplex = expressions.some(expression => usesComplexConstructor(expression.node)
+      || expression.variables.some(name => imaginaryNames.includes(name) && !defined.has(name)));
+    next.solver.complex = next.solver.mode === 'complex' || (next.solver.mode === 'auto' && usesComplex);
+    const shadowed = imaginaryNames.find(name => defined.has(name));
+    if (next.solver.complex && shadowed) throw new Error(`“${shadowed}” is reserved for the imaginary unit in complex mode. Rename the variable or select Real mode in Solver settings.`);
+  }
+  const expanded = expandElements(next, elements, usages, [...unknowns, ...parameters]);
   const deviceDefaults = new Map(expanded.variables.filter(variable => variable.kind === 'parameter').map(variable => [variable.name, variable]));
   for (let index = 0; index < equations.length; index++) {
     const assignment = equationAssignment(equations[index].slice(0, -1));
@@ -146,7 +180,6 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
   if (unknowns.length + parameters.length > 100) throw new Error('Use at most 100 unknowns and parameters across all tabs.');
   const math = equations.join('\n');
   if (math.length > 50_000) throw new Error('Equations across all tabs exceed 50,000 characters.');
-  const next = structuredClone(config);
   next.variables = []; next.constraints = ''; next.equations = math;
   next.axes = { x: '', y: '' };
   // The time selection controls the traced sweep, independently of each

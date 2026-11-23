@@ -1,6 +1,6 @@
 import { realCoordinate } from './complex';
 import { createConstantResolver } from './constants';
-import type { Configuration, SweepResult } from './types';
+import type { Configuration } from './types';
 
 export const MAX_TRANSITION_LINES = 32;
 export interface TransitionLine { axis: 'x' | 'y'; expression: string; value: number }
@@ -9,7 +9,7 @@ export class TransitionExpressionError extends Error {
 }
 
 /** Reference positions depend only on fixed inputs, never a sampled root. */
-export function evaluateTransitionLines(config: Configuration, _result?: SweepResult | null): TransitionLine[] {
+export function evaluateTransitionLines(config: Configuration): TransitionLine[] {
   const transitions = config.axes.transitions ?? [];
   if (!transitions.length) return [];
   if (transitions.length > MAX_TRANSITION_LINES) throw new TransitionExpressionError(`Use at most ${MAX_TRANSITION_LINES} transition lines.`, MAX_TRANSITION_LINES);

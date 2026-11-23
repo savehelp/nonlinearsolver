@@ -88,30 +88,25 @@ async function checkPlotCommands(source) {
   if (await evaluate(`!!document.querySelector('.plot-panel input:not([type="checkbox"])')`)) throw new Error('Obsolete axis fields are visible');
   const labels = await evaluate(`document.querySelector('.plot').data.map(trace => trace.name)`);
   if (JSON.stringify(labels) !== JSON.stringify(['y', 'y^2'])) throw new Error('Plot commands did not produce both curves');
-  const runs = await evaluate('window.__runs'), cancelled = await evaluate('window.__workerCancels');
-  const ready = () => until(() => evaluate(`!document.querySelector('#workspace-source-error')?.textContent && document.querySelector('.calculation-status')?.textContent === '6 slices complete' && document.querySelector('.plot')?.data?.length === 2 && document.querySelector('.plot').data.every(trace => trace.x?.length === 5)`), 'cached plot refresh');
   await editModelSource(source.replace('plot y^2', 'plot y*1000'));
   await until(() => evaluate(`document.querySelector('.plot')?.data?.[1]?.name === 'y*1000' && document.querySelector('.plot').data[1].y.every((value, index) => Math.abs(value - document.querySelector('.plot').data[0].y[index]*1000) < 1e-8)`), 'Y expression refresh');
   await editModelSource(source.replace('set_time_axis x', 'set_time_axis a'));
   await until(() => evaluate(`document.querySelector('.plot')?.data?.length === 2 && document.querySelector('.plot').data.every(trace => trace.x?.length && trace.x.every((value, index) => value === trace.customdata[index].values.a))`), 'X parameter refresh');
-  await editModelSource(source); await ready();
+  await editModelSource(source); await waitForGrid(5);
   for (const [description, invalid] of [
     ['conflicting X declarations', source + '\nset_time_axis a'],
     ['unswept X parameter', source.replace('set_time_axis x', 'set_time_axis gain')],
     ['incomplete plot command', source + '\nplot ('],
   ]) {
+    const runs = await evaluate('window.__runs');
     await editModelSource(invalid);
     await until(() => evaluate(`!!document.querySelector('#workspace-source-error')?.textContent && !(document.querySelector('.plot')?.data || []).some(trace => trace.x?.length)`), description);
     await pause(300);
-    if (await evaluate('window.__runs') !== runs || await evaluate('window.__workerCancels') !== cancelled) throw new Error('Invalid plot command restarted or cancelled computation');
+    if (await evaluate('window.__runs') !== runs) throw new Error('Invalid plot command started a calculation');
     await editModelSource(source);
-    await ready();
+    await waitForGrid(5);
   }
-  await editModelSource(source.replace('parameter gain 2 0.1 0 5', 'parameter gain 2 0.5 0 5'));
-  await ready(); await pause(300);
-  await editModelSource(source); await ready(); await pause(300);
-  if (await evaluate('window.__runs') !== runs || await evaluate('window.__workerCancels') !== cancelled) throw new Error('Display or fixed-slider metadata edits restarted computation');
-  console.log(JSON.stringify({ stage: 'plot-commands', multipleCurves: true, xAndYEditsReuseSolutions: true, plottingErrorsPreserveSolutions: true, fixedSliderStepNoSolve: true }));
+  console.log(JSON.stringify({ stage: 'plot-commands', multipleCurves: true, axisAndExpressionEdits: true, invalidSourceRecovery: true }));
 }
 async function waitForGrid(points) {
   await until(() => evaluate(`!document.querySelector('#workspace-source-error')?.textContent && document.querySelector('.calculation-status')?.textContent === '6 slices complete' && document.querySelector('.plot')?.data?.length === 2 && document.querySelector('.plot').data.every(trace => trace.x?.length === ${points})`), `${points}-point grid`);
@@ -120,29 +115,11 @@ async function checkResampling(source) {
   const previousRuns = await evaluate('window.__runs');
   await editModelSource(source.replace('parameter x 0 1 -2 2 sweep', 'parameter x 0 2 -2 2 sweep'));
   await waitForGrid(3);
-  const coarsened = await evaluate('window.__runStats.at(-1)');
-  if (!coarsened?.complete || coarsened.computed !== 0 || coarsened.reused !== 18) throw new Error(`Coarser grid recalculated existing samples: ${JSON.stringify(coarsened)}`);
   await editModelSource(source.replace('parameter x 0 1 -2 2 sweep', 'parameter x 0 0.5 -2 2 sweep'));
   await waitForGrid(9);
-  const refined = await evaluate('window.__runStats.at(-1)');
-  if (!refined?.complete || refined.computed <= 0 || refined.reused < 18 || refined.computed + refined.reused !== 54) throw new Error(`Refinement did not reuse matching samples: ${JSON.stringify(refined)}`);
   await editModelSource(source); await waitForGrid(5);
-  console.log(JSON.stringify({ stage: 'resampling', runs: await evaluate('window.__runs') - previousRuns, coarsenedComputed: coarsened.computed, coarsenedReused: coarsened.reused, refinedComputed: refined.computed, refinedReused: refined.reused }));
-}
-async function checkPlotDraftDuringRun(source) {
-  const dense = source.replace('parameter x 0 1 -2 2 sweep', 'parameter x 0 0.002 -2 2 sweep');
-  const before = await evaluate('window.__runs');
-  await editModelSource(dense);
-  await until(() => evaluate(`window.__runs > ${before} && window.__runStats.at(-1)?.running`), 'longer sweep start');
-  const runs = await evaluate('window.__runs'), cancelled = await evaluate('window.__workerCancels');
-  await editModelSource(dense + '\nplot (');
-  await until(() => evaluate(`!!document.querySelector('#workspace-source-error')?.textContent`), 'plot draft during computation');
-  await until(() => evaluate('window.__runStats.at(-1)?.complete'), 'background computation with plot draft');
-  if (await evaluate('window.__runs') !== runs || await evaluate('window.__workerCancels') !== cancelled) throw new Error('A plotting draft cancelled active numerical work');
-  await editModelSource(dense); await waitForGrid(2001);
-  if (await evaluate('window.__runs') !== runs) throw new Error('Correcting a plotting draft reran a finished sweep');
-  await editModelSource(source); await waitForGrid(5);
-  console.log(JSON.stringify({ stage: 'active-plot-draft', computationContinued: true, correctedWithoutSolve: true }));
+  if (await evaluate('window.__runs') !== previousRuns + 3) throw new Error('Sweep metadata changes did not start the expected calculations');
+  console.log(JSON.stringify({ stage: 'resampling', mainSampleCounts: [3, 9, 5] }));
 }
 const plotData = `(() => {
   const plot = document.querySelector('.plot');
@@ -171,29 +148,16 @@ try {
   await call('Runtime.enable'); await call('Page.enable'); await call('Log.enable'); await call('Network.enable');
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await call('Page.addScriptToEvaluateOnNewDocument', { source: `
-    window.__runs=0; window.__workers=[]; window.__workerCancels=0; window.__runStats=[];
+    window.__runs=0; window.__workers=[];
     const BrowserWorker=window.Worker;
     window.Worker=class extends BrowserWorker {
       constructor(url,options){
-        super(url,options); window.__workers.push(String(url)); this.__stats=null;
-        this.addEventListener('message',({data})=>{
-          if(!this.__stats)return;
-          if(data.type==='complete'||data.type==='slice-complete'){
-            this.__stats.computed+=data.update.computed||0;
-            this.__stats.reused+=data.update.reused||0;
-          }
-          if(data.type==='complete'||data.type==='double-complete'||data.type==='error'){
-            this.__stats.running=false; this.__stats.complete=data.type!=='error';
-          }
-        });
+        super(url,options); window.__workers.push(String(url));
       }
       postMessage(message,...rest){
-        if(message?.type==='run'){
-          window.__runs++; this.__stats={running:true,complete:false,computed:0,reused:0}; window.__runStats.push(this.__stats);
-        }
+        if (message?.type === 'run') window.__runs++;
         return super.postMessage(message,...rest);
       }
-      terminate(){if(this.__stats?.running){window.__workerCancels++; this.__stats.running=false;} return super.terminate();}
     };
   ` });
   await call('Page.navigate', { url: pathToFileURL(resolve('dist/index.html')).href });
@@ -216,15 +180,16 @@ try {
   await until(() => evaluate(`document.querySelector('.calculation-status')?.textContent === '6 slices complete' && document.querySelector('.plot')?.data?.some(trace=>trace.x?.length>0)`), 'multidimensional sweep');
   await checkPlotCommands(config.tabs[0].source);
   await checkResampling(config.tabs[0].source);
-  await checkPlotDraftDuringRun(config.tabs[0].source);
   const before = await evaluate(plotData);
-  for (const [parameter, value] of [['a',2],['b',1]]) {
-    await evaluate(`(() => { const el=document.querySelector('input[aria-label="${parameter} slice slider"]'); if(!el)throw new Error('Missing slider'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,${JSON.stringify(String(value))}); el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+  for (const parameter of ['a', 'b']) {
+    await evaluate(`document.querySelector('input[aria-label="${parameter} slice slider"]').focus()`);
+    await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'End', code: 'End', windowsVirtualKeyCode: 35 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'End', code: 'End', windowsVirtualKeyCode: 35 });
   }
   await until(() => evaluate(`document.querySelector('.plot')?.data?.some(trace=>trace.customdata?.some(point=>point?.values?.a===2&&point.values.b===1))`), 'slice switching');
   const after = await evaluate(plotData);
   if (after.runs !== before.runs) throw new Error('Slice switching restarted computation');
-  if (after.traces.some(trace => trace.values.some(point => Math.abs(point.y-(2*point.x+1))>1e-8))) throw new Error('Switched slice plot mismatch');
+  if (after.traces.some((trace, index) => trace.y.some((y, point) => Math.abs(y - (2 * trace.x[point] + 1) ** (index + 1)) > 1e-8))) throw new Error('Switched slice plot mismatch');
   console.log(JSON.stringify({ stage:'multidimensional',status:after.status,runs:after.runs,points:after.traces.reduce((sum,t)=>sum+t.x.length,0),slice:await evaluate(`document.querySelector('.slice-summary')?.textContent`) }));
   await evaluate(`document.querySelector('.plot').emit('plotly_click',{points:[{customdata:document.querySelector('.plot').data[0].customdata[0]}]});`);
   await until(() => evaluate(`!!document.querySelector('[aria-label="Operating point inspector"]')`), 'point inspector');
@@ -257,7 +222,7 @@ try {
   await until(()=>evaluate(`document.querySelector('.calculation-status')?.textContent === '6 slices complete' && document.querySelector('.plot')?.data?.some(trace=>trace.customdata?.some(point=>point?.values?.y===point.values.x+7))`),'saved workspace reload');
   await capture('multiple-tabs');
   await evaluate(`document.querySelector('[aria-label="Workspace settings"]').click()`);
-  await evaluate(`[...document.querySelectorAll('.settings-dropdown button')].find(button=>button.textContent==='Graph scale').click()`);
+  await evaluate(`[...document.querySelectorAll('.settings-dropdown button')].find(button=>button.textContent==='Graph settings').click()`);
   await capture('graph-settings');
   await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
   await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });

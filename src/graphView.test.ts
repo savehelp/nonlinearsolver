@@ -6,7 +6,7 @@ import type { TransitionLine } from './transitionLines';
 
 function result(points: [number, number | null][], branch = 1): SweepResult {
   return { branches: [{ id: branch, points: points.map(([x, y], index): Point => ({ x, y: y ?? NaN, ys: [y], index, parameter: x, branch,
-    values: { x }, residuals: [], jacobian: [], norm: 0, iterations: 0, region: '' })) }],
+    values: { x }, residuals: [], jacobian: [], norm: 0, iterations: 0 })) }],
     failures: [], solved: points.length, total: points.length, elapsed: 0, unknowns: [], equations: [] };
 }
 

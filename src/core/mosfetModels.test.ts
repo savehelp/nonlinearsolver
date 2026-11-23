@@ -60,7 +60,7 @@ describe.each(processes)('$type Level 1 channel model', process => {
     relative(normal['M1.KP'], mobility * 1e-4 * oxideCapacitance);
     relative(normal['M1.K'], beta);
     relative(normal['M1.LAMBDA'], lambda);
-    relative(normal['M1.id'], p * beta / 2 * (1 + 2 * lambda));
+    relative(normal['M1.id'], beta / 2 * (1 + 2 * lambda));
 
     const wide = values(device(type, gate, source + p * 2, source, undefined, { W: 2e-6 }));
     relative(wide['M1.id'], 2 * normal['M1.id']);
@@ -89,18 +89,18 @@ describe.each(processes)('$type Level 1 channel model', process => {
     expect(biased['M1.VTH']).toBeCloseTo(threshold, 12);
     expect(Math.abs(biased['M1.VTH'])).toBeGreaterThan(Math.abs(tied['M1.VTH']));
     expect(Math.abs(biased['M1.id'])).toBeLessThan(Math.abs(tied['M1.id']));
-    relative(biased['M1.id'], p * beta / 2 * (1 - Math.abs(threshold - vto)) ** 2 * (1 + 2 * lambda));
+    relative(biased['M1.id'], beta / 2 * (1 - Math.abs(threshold - vto)) ** 2 * (1 + 2 * lambda));
   });
 
-  it('matches cutoff, triode, saturation, and drain-to-source current polarity', () => {
+  it('matches cutoff, triode, saturation, and forward current polarity', () => {
     const off = values(device(type, source + p * .4, source + p * 2, source));
     expect(Math.abs(off['M1.id'])).toBe(0);
     const triode = values(device(type, gate, source + p * .25, source));
-    relative(triode['M1.id'], p * beta * (.25 - .25 ** 2 / 2) * (1 + lambda * .25));
+    relative(triode['M1.id'], beta * (.25 - .25 ** 2 / 2) * (1 + lambda * .25));
     const saturation = values(device(type, gate, source + p * 1.7, source));
-    relative(saturation['M1.id'], p * beta / 2 * (1 + lambda * 1.7));
-    expect(Math.sign(triode['M1.id'])).toBe(p);
-    expect(Math.sign(saturation['M1.id'])).toBe(p);
+    relative(saturation['M1.id'], beta / 2 * (1 + lambda * 1.7));
+    expect(Math.sign(triode['M1.id'])).toBe(1);
+    expect(Math.sign(saturation['M1.id'])).toBe(1);
     expect(Math.abs(values(device(type, gate, source, source))['M1.id'])).toBe(0);
   });
 
@@ -109,8 +109,8 @@ describe.each(processes)('$type Level 1 channel model', process => {
     const on = Math.abs(vto) + .8, h = 1e-5;
     for (const vds of [.2, 1.4]) {
       const operating = channel(on, vds);
-      const gm = p * (channel(on + h, vds)['M1.id'] - channel(on - h, vds)['M1.id']) / (2 * h);
-      const gds = p * (channel(on, vds + h)['M1.id'] - channel(on, vds - h)['M1.id']) / (2 * h);
+      const gm = (channel(on + h, vds)['M1.id'] - channel(on - h, vds)['M1.id']) / (2 * h);
+      const gds = (channel(on, vds + h)['M1.id'] - channel(on, vds - h)['M1.id']) / (2 * h);
       relative(operating['M1.gm'], gm, 1e-7);
       relative(operating['M1.gds'], gds, 1e-7);
     }
@@ -127,7 +127,7 @@ describe.each(processes)('$type Level 1 channel model', process => {
     const bias = .5, overdrive = .9, body = source - p * bias;
     const thresholdMagnitude = Math.abs(vto) + gamma * (Math.sqrt(phi + bias) - Math.sqrt(phi));
     const boundaryGate = source + p * (thresholdMagnitude + overdrive);
-    const current = (drainBias: number, gateVoltage = boundaryGate) => p * values(device(type, gateVoltage, source + p * drainBias, source, body))['M1.id'];
+    const current = (drainBias: number, gateVoltage = boundaryGate) => values(device(type, gateVoltage, source + p * drainBias, source, body))['M1.id'];
     const h = 1e-6;
     const at = current(overdrive), below = current(overdrive - h), above = current(overdrive + h);
     relative(at, beta / 2 * overdrive ** 2 * (1 + lambda * overdrive));
@@ -181,9 +181,9 @@ describe.each(processes)('$type Level 1 channel model', process => {
     const current = (drainOffset: number, gateValue = gateVoltage) => values(device(type, gateValue, source + drainOffset, source, body))['M1.id'];
     const h = 1e-6, at = current(0), below = current(-h), above = current(h);
     expect(Math.abs(at)).toBe(0);
-    expect(below).toBeLessThan(0); expect(above).toBeGreaterThan(0);
-    relative((at - below) / h, beta * overdrive, 3e-6);
-    relative((above - at) / h, beta * overdrive, 3e-6);
+    expect(p * below).toBeLessThan(0); expect(p * above).toBeGreaterThan(0);
+    relative(p * (at - below) / h, beta * overdrive, 3e-6);
+    relative(p * (above - at) / h, beta * overdrive, 3e-6);
     // At zero channel voltage the current stays zero while the gate changes.
     expect(current(0, gateVoltage - h)).toBe(0);
     expect(current(0, gateVoltage + h)).toBe(0);
@@ -229,7 +229,7 @@ parameter vin 1.6 .1 1 2 sweep
 unknown out .5
 N1.g = vin; N1.s = 0; N1.d = out; N1.b = -.5;
 P1.g = vin; P1.s = 3.3; P1.d = out; P1.b = 3.8;
-N1.id + P1.id = 0;
+N1.id = P1.id;
 out >= 0; out <= 3.3;
 set_time_axis vin
 plot out
@@ -246,8 +246,8 @@ plot P1.id`;
     expect(before.roots).toHaveLength(1); expect(after.roots).toHaveLength(1);
     const first = before.roots[0].values, saved = after.roots[0].values;
     expect(first.out).toBeGreaterThan(0); expect(first.out).toBeLessThan(3.3);
-    expect(first['N1.id']).toBeGreaterThan(0); expect(first['P1.id']).toBeLessThan(0);
-    expect(first['N1.id'] + first['P1.id']).toBeCloseTo(0, 11);
+    expect(first['N1.id']).toBeGreaterThan(0); expect(first['P1.id']).toBeGreaterThan(0);
+    expect(first['N1.id'] - first['P1.id']).toBeCloseTo(0, 11);
     expect(first['N1.b']).toBe(-.5); expect(first['P1.b']).toBe(3.8);
     expect(saved.out).toBeCloseTo(first.out, 10);
     expect(saved['N1.id']).toBeCloseTo(first['N1.id'], 12);

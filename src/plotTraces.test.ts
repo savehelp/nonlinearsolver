@@ -8,7 +8,7 @@ interface Trace {
   line: { color: string }; hovertemplate?: string;
 }
 function point(branch: number, index: number, y: number | null = index): Point {
-  return { branch, index, parameter: index, x: index, y: y ?? NaN, ys: [y, index * 2], values: { x: index, y: y ?? NaN }, residuals: [0], norm: 0, iterations: 1, jacobian: [[1]], region: '' };
+  return { branch, index, parameter: index, x: index, y: y ?? NaN, ys: [y, index * 2], values: { x: index, y: y ?? NaN }, residuals: [0], norm: 0, iterations: 1, jacobian: [[1]] };
 }
 const tracesFor = (branches: Branch[], labels = ['y']) => branchTraces(branches, labels, 'x') as unknown as Trace[];
 

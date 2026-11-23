@@ -41,7 +41,7 @@ describe.each(processes)('$type source/drain reversal integration', ({ type, pol
       expect(point.values['M1.channel_vds']).toBeCloseTo(Math.abs(point.parameter), 12);
       expect(point.values['M1.channel_vsb']).toBeGreaterThanOrEqual(1);
       expect(Math.abs(point.parameter) < 1e-12 ? Math.abs(point.values['M1.id']) : Math.sign(point.values['M1.id']))
-        .toBe(Math.abs(point.parameter) < 1e-12 ? 0 : Math.sign(point.parameter));
+        .toBe(Math.abs(point.parameter) < 1e-12 ? 0 : Math.sign(point.parameter) * polarity);
     }
   });
 
@@ -69,8 +69,8 @@ parameter R 1000
 M1.g = ${supply + polarity * (threshold + .8)};
 M1.b = ${supply};
 ${reversed
-      ? `M1.d = ${supply}; M1.s = ${supply + polarity * 3.3} + M1.id*R;`
-      : `M1.s = ${supply}; M1.d = ${supply + polarity * 3.3} - M1.id*R;`}
+      ? `M1.d = ${supply}; M1.s = ${supply + polarity * 3.3} + ${polarity}*M1.id*R;`
+      : `M1.s = ${supply}; M1.d = ${supply + polarity * 3.3} - ${polarity}*M1.id*R;`}
 set_time_axis t
 plot M1.id`;
     const ordinary = compile(source(false)), reversed = compile(source(true));
@@ -81,7 +81,7 @@ plot M1.id`;
     expect(reverse['M1.source_voltage']).toBeCloseTo(supply, 12);
     expect(reverse['M1.id']).toBeCloseTo(-normal['M1.id'], 12);
     expect(reverse['M1.drain_voltage']).toBeCloseTo(normal['M1.drain_voltage'], 10);
-    expect(reverse['M1.s']).toBeCloseTo(supply + polarity * 3.3 + reverse['M1.id'] * 1000, 10);
+    expect(reverse['M1.s']).toBeCloseTo(supply + polarity * 3.3 + polarity * reverse['M1.id'] * 1000, 10);
   });
 
   it('preserves drain/source wiring, compatible aliases, and both current directions through a workspace ZIP', () => {

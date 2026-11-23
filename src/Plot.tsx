@@ -48,7 +48,7 @@ function Plot({ result, config, transitionConfig = config, onPoint, view, onView
       const traces: Data[] = [];
       let curves: PlotCurve[]; try { curves = configurationCurves(config); } catch { curves = config.axes.y.trim() ? [{ x: config.axes.x, y: config.axes.y }] : []; }
       let transitions: TransitionLine[] = [];
-      try { transitions = evaluateTransitionLines(transitionConfig, result); } catch { /* Source validation reports incomplete transition expressions. */ }
+      try { transitions = evaluateTransitionLines(transitionConfig); } catch { /* Source validation reports incomplete transition expressions. */ }
       const xLabels = curves.map(curve => curve.x), yLabels = curves.map(curve => curve.y);
       const labels = config.axes.curves ? curves.map(curve => `${curve.y} vs ${curve.x}`) : yLabels;
       const multiple = labels.length > 1 || (!!config.axes.curves && labels.length > 0);

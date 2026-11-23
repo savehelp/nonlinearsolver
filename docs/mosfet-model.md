@@ -92,17 +92,9 @@ I_{ch}=\begin{cases}
 \end{cases}
 \]
 
-Current `id` keeps a fixed reference from the named external drain `d` toward the named external source `s`:
+Current `id` uses the named pins as a fixed reference. It is positive from drain to source for NMOS and from source to drain for PMOS. It is zero at equal pin voltages and negative in reverse conduction. The current leaving the drain node is `+id` for NMOS and `-id` for PMOS. The source node has the opposite sign.
 
-\[
-i_d=\begin{cases}I_{ch},&d\ge s,\\-I_{ch},&d<s.\end{cases}
-\]
-
-At equal terminal voltages the current is zero. In NMOS operation, `d > s` produces positive channel current and `s > d` produces negative channel current when the channel is on. Normal PMOS operation has `s > d` and negative `id`; inverted PMOS operation has `d > s` and positive `id`. A negative drain current therefore means conventional current flows from named source toward named drain; it does not universally mean inverted operation or identify the bias of a body junction. Both conducting regions use the same modulation factor, as in PSpice Level 1. [Cadence guide, p. 198](https://e2e.ti.com/cfs-file/__key/communityserver-discussions-components-files/234/PSpice_5F00_ReferenceguideOrCAD.pdf)
-
-For KCL with currents leaving each node, the device contributes `+M1.id` at its drain node and `-M1.id` at its source node. These references remain fixed when the internal source/drain roles swap.
-
-PMOS also exposes `isd = -id`, a signed current referenced from its named source pin to its named drain pin. For example, use `M3.isd = M1.id;` to balance a PMOS load against an NMOS drain current.
+PMOS exposes `isd = id` as a source-to-drain alias. With the current bundled model, write `M3.id = M1.id;` for a PMOS load balancing an NMOS. Older saved definitions keep their original polarity. If you restore a newer PMOS default in a saved workspace, update equations that relied on the old sign.
 
 Both models expose `gm`, `gds`, and `gmb` in siemens. These are intrinsic channel derivatives in the coordinates of the active source and drain. They use the triode or saturation expression as appropriate and are zero in cutoff. At zero drain bias, a conducting channel has `gm = 0` and `gds = K*vov`. The output conductance includes both the triode slope and the channel-length modulation contribution. [Berkeley/ngspice MOS1 derivatives](https://raw.githubusercontent.com/ngspice/ngspice/master/src/spicelib/devices/mos1/mos1load.c)
 
@@ -113,7 +105,7 @@ Substitution at \(v_{DS}=u\) gives \(I_{ch}=\beta u^2(1+\lambda u)/2\) on both s
 The signed current and its first voltage derivatives also match when the conduction-terminal voltages cross. Near \(d=s\), with local overdrive \(u_0\),
 
 \[
-i_d=\beta\max(u_0,0)(d-s)+O((d-s)^2).
+i_d=p\,\beta\max(u_0,0)(d-s)+O((d-s)^2).
 \]
 
 Both sides therefore have the same small drain-to-source conductance. At threshold, the leading term is quadratic and the first slopes approach zero. Source selection through `min`/`max` can give `source_voltage` and `VTH` a change in slope at the crossing; continuity of the physical channel current does not mean every helper member has continuous derivatives. Current is generally not twice continuously differentiable at region boundaries.
@@ -135,7 +127,7 @@ For an active instance, the fallback adds `M1.b = M1.s` unless `M1.b` appears in
 
 For a bidirectional NMOS, connect body at or below both conduction pins; for PMOS, connect it at or above both. A body left tied to the named source can become forward biased after a voltage reversal, which this channel-only model rejects. Moving the default body connection when the selected source changes would alter the circuit, so the fallback stays attached to its original external pin.
 
-Both types require real solver mode. For a PMOS with its s pin at `Vdd` and a resistor from d to ground, use `M1.s = Vdd; M1.d = -M1.id*R1;`; plotting `-M1.id*1000` shows positive supply-current magnitude in milliamps. The **MOS elements · bidirectional channel** example uses `d`/`s` connections and explicit bodies for both types while their terminal voltages cross.
+Both types require real solver mode. For a PMOS with its s pin at `Vdd` and a resistor from d to ground, use `M1.s = Vdd; M1.d = M1.id*R1;`; plotting `M1.id*1000` shows positive supply-current magnitude in milliamps. The **MOS elements · bidirectional channel** example uses `d`/`s` connections and explicit bodies for both types while their terminal voltages cross.
 
 Saved workspaces retain their embedded definitions. To adopt a newer bundled model, restore that type's default under **Settings → Elements**. When switching from the older NMOS definition, replace parameter overrides for `VTH`, `K`, and `LAMBDA` with inputs such as `VTO`, `W`, and `CLM_C`.
 

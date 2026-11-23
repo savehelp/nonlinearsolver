@@ -1,15 +1,7 @@
 import type { Configuration } from './core/types';
 import { sliceSweeps } from './core/variables';
 
-interface Props {
-  config: Configuration;
-  onChange: (update: (config: Configuration) => void) => void;
-  onValidity: (id: string, error: string | null) => void;
-  onRevert: (error: string) => void;
-  onValid: () => void;
-}
-
-export default function SweepSettings({ config }: Props) {
+export default function SweepSettings({ config }: { config: Configuration }) {
   const additional = sliceSweeps(config).map(dimension => dimension.parameter).filter(Boolean);
   const legacy = config.sweep.mode === 'constrained';
 

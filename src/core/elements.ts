@@ -371,7 +371,7 @@ export function expandElements(config: Configuration, declarations: ElementDecla
   for (const [instance, { declaration, model, connected }] of instances) {
     if (!active.has(instance)) continue;
     const mode = model.definition.mode ?? 'both';
-    if ((mode === 'real' && config.solver.complex) || (mode === 'complex' && !config.solver.complex)) throw new Error(at(declaration.location, `Element “${instance}” (${declaration.type}) requires ${mode} mode. ${mode === 'real' ? 'Disable' : 'Enable'} Complex mode in Solver settings.`));
+    if ((mode === 'real' && config.solver.complex) || (mode === 'complex' && !config.solver.complex)) throw new Error(at(declaration.location, `Element “${instance}” (${declaration.type}) requires ${mode} mode. Select ${mode === 'real' ? 'Real' : 'Complex'} in Solver settings.`));
     const missing = model.definition.terminals.filter(terminal => !connected.has(terminal) && !model.defaults.has(terminal));
     if (missing.length) throw new Error(at(declaration.location, `Element “${instance}” has unconnected terminal${missing.length === 1 ? '' : 's'}: ${missing.map(terminal => `${instance}.${terminal}`).join(', ')}. Connect each terminal in an equation.`));
     for (const [field, value] of Object.entries(model.definition.parameters)) {

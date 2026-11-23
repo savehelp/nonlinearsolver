@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState, type DragEvent } from 'react';
 import { ArrowDownToLine, FolderOpen, X } from 'lucide-react';
-import { loadWorkspaceArchive, MAX_WORKSPACE_ARCHIVE_SIZE } from './core/workspaceArchive';
-import { loadWorkspaceFolder, MAX_WORKSPACE_FOLDER_FILES, MAX_WORKSPACE_FOLDER_SIZE } from './core/workspaceImport';
+import { loadWorkspaceArchive, loadWorkspaceFiles, MAX_WORKSPACE_ARCHIVE_SIZE, MAX_WORKSPACE_ARCHIVE_CONTENT, MAX_WORKSPACE_FILES, type WorkspaceImportFile } from './core/workspaceArchive';
 import type { Configuration } from './core/types';
 
 interface Props { onImport: (config: Configuration) => void; onClose: () => void }
@@ -9,20 +8,20 @@ interface FolderFile { path: string; file: File }
 
 function checkFolderFiles(files: readonly FolderFile[]): void {
   if (!files.length) throw new Error('The selected folder is empty. Choose the folder containing workspace.json.');
-  if (files.length > MAX_WORKSPACE_FOLDER_FILES) throw new Error(`A workspace folder can contain at most ${MAX_WORKSPACE_FOLDER_FILES} files.`);
-  if (files.reduce((size, entry) => size + entry.file.size, 0) > MAX_WORKSPACE_FOLDER_SIZE) throw new Error('Workspace folder contents must be no larger than 8 MB.');
+  if (files.length > MAX_WORKSPACE_FILES) throw new Error(`A workspace folder can contain at most ${MAX_WORKSPACE_FILES} files.`);
+  if (files.reduce((size, entry) => size + entry.file.size, 0) > MAX_WORKSPACE_ARCHIVE_CONTENT) throw new Error('Workspace folder contents must be no larger than 8 MB.');
 }
 
 async function readFolder(files: readonly FolderFile[]): Promise<Configuration> {
   checkFolderFiles(files);
-  const contents = [];
+  const contents: WorkspaceImportFile[] = [];
   for (const { path, file } of files) contents.push({ path, data: new Uint8Array(await file.arrayBuffer()) });
-  return loadWorkspaceFolder(contents);
+  return loadWorkspaceFiles(contents);
 }
 
 function selectedFolder(files: readonly File[]): FolderFile[] {
   let root: string | undefined;
-  const contents = files.map(file => {
+  return files.map(file => {
     const path = file.webkitRelativePath, separator = path.indexOf('/');
     if (separator < 1 || separator === path.length - 1) throw new Error('Choose the workspace folder itself, containing workspace.json and its elements folder.');
     const folder = path.slice(0, separator);
@@ -30,8 +29,6 @@ function selectedFolder(files: readonly File[]): FolderFile[] {
     if (folder !== root) throw new Error('Choose one workspace folder at a time.');
     return { file, path: path.slice(separator + 1) };
   });
-  checkFolderFiles(contents);
-  return contents;
 }
 
 async function droppedFolder(root: FileSystemDirectoryEntry): Promise<FolderFile[]> {
@@ -42,8 +39,8 @@ async function droppedFolder(root: FileSystemDirectoryEntry): Promise<FolderFile
     if (entry.isFile) {
       const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
       size += file.size;
-      if (files.length >= MAX_WORKSPACE_FOLDER_FILES) throw new Error(`A workspace folder can contain at most ${MAX_WORKSPACE_FOLDER_FILES} files.`);
-      if (size > MAX_WORKSPACE_FOLDER_SIZE) throw new Error('Workspace folder contents must be no larger than 8 MB.');
+      if (files.length >= MAX_WORKSPACE_FILES) throw new Error(`A workspace folder can contain at most ${MAX_WORKSPACE_FILES} files.`);
+      if (size > MAX_WORKSPACE_ARCHIVE_CONTENT) throw new Error('Workspace folder contents must be no larger than 8 MB.');
       files.push({ path, file });
       return;
     }
@@ -57,7 +54,6 @@ async function droppedFolder(root: FileSystemDirectoryEntry): Promise<FolderFile
     }
   }
   await visit(root, '', 0);
-  checkFolderFiles(files);
   return files;
 }
 

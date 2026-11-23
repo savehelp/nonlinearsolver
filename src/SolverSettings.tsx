@@ -11,11 +11,15 @@ interface Props {
 
 export default function SolverSettings({ config, onChange, onValidity, onRevert, onValid }: Props) {
   return <section className="settings-content" aria-label="Solver settings">
-    <label className="check-label"><input type="checkbox" checked={Boolean(config.solver.complex)} onChange={event => {
-      const enabled = event.target.checked;
-      onChange(current => { current.solver.complex = enabled; });
-    }}/>Complex mode</label>
-    <p className="field-hint">Allow complex unknowns. Parameters, sweeps, and plot coordinates stay real; use real, imag, abs, or arg to plot complex results.</p>
+    <label>Number mode <select value={config.solver.mode ?? (config.solver.complex ? 'complex' : 'real')} onChange={event => {
+      const mode = event.target.value as 'auto' | 'real' | 'complex';
+      onChange(current => { current.solver.mode = mode; });
+    }}>
+      <option value="auto">Auto ({config.solver.complex ? 'Complex' : 'Real'})</option>
+      <option value="real">Real</option>
+      <option value="complex">Complex</option>
+    </select></label>
+    <p className="field-hint">Auto uses complex solving for an undeclared i or j or a complex() expression. Choose Complex explicitly to search for complex roots of real equations. Plot coordinates stay real.</p>
     <div className="settings-fields">
       {([
         ['tolerance', 'Tolerance', 'Greater than 0, up to 0.1'],

@@ -9,7 +9,7 @@ describe('point inspection diagnostics', () => {
     const config = clone(starter);
     config.equations = 'y = x*z; z = x^2;';
     config.variables = [{ name: 'y', kind: 'unknown', value: 1 }, { name: 'z', kind: 'unknown', value: 1 }, { name: 'x', kind: 'parameter', value: 0 }];
-    const point: Point = { values: { x: 2, y: 8, z: 4 }, residuals: [0, 0], norm: 0, iterations: 0, jacobian: [], region: '',
+    const point: Point = { values: { x: 2, y: 8, z: 4 }, residuals: [0, 0], norm: 0, iterations: 0, jacobian: [],
       parameter: 2, x: 2, y: 8, ys: [8], index: 2, branch: 1 };
     const inspected = withPointJacobian(config, point);
     expect(inspected).not.toBe(point);
@@ -27,7 +27,7 @@ describe('point inspection diagnostics', () => {
 
   it('adds missing labels to existing matrices and rejects incomplete point data', () => {
     const config = clone(starter);
-    const point: Point = { values: { x: 0 }, residuals: [0], norm: 0, iterations: 0, jacobian: [], region: '',
+    const point: Point = { values: { x: 0 }, residuals: [0], norm: 0, iterations: 0, jacobian: [],
       parameter: 0, x: 0, y: 0, ys: [0], index: 0, branch: 1 };
     expect(() => withPointJacobian(config, point)).toThrow('missing values');
     expect(() => withPointJacobian(config, { ...point, jacobian: [[1]] })).toThrow('missing values');

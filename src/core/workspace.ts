@@ -54,7 +54,8 @@ export function loadWorkspace(data: unknown): Configuration {
   if (!object(settings)) throw new Error('Workspace needs solver and sweep settings.');
   const solver = settings.solver;
   if (!object(solver) || !finite(solver.tolerance) || !finite(solver.iterations) || !finite(solver.starts)
-    || (Object.hasOwn(solver, 'complex') && typeof solver.complex !== 'boolean')) throw new Error('Invalid workspace solver settings.');
+    || (Object.hasOwn(solver, 'complex') && typeof solver.complex !== 'boolean')
+    || (Object.hasOwn(solver, 'mode') && solver.mode !== 'auto' && solver.mode !== 'real' && solver.mode !== 'complex')) throw new Error('Invalid workspace solver settings.');
   const sweep = settings.sweep;
   if (!object(sweep) || (sweep.mode !== 'free' && sweep.mode !== 'constrained') || typeof sweep.parameter !== 'string') throw new Error('Invalid workspace sweep selection.');
   if (sweep.mode === 'constrained' && (typeof sweep.parameter !== 'string' || typeof sweep.release !== 'string' || !finite(sweep.min) || !finite(sweep.max)
@@ -64,11 +65,12 @@ export function loadWorkspace(data: unknown): Configuration {
   const config: Configuration = {
     name: data.name, description: data.description,
     documents: data.tabs.map(({ id, title, source }) => ({ id, title, source })),
-    equations: '', variables: [], constraints: '', regions: [],
+    equations: '', variables: [], constraints: '',
     axes: { x: '', y: '' },
     ...(Object.hasOwn(data, 'elements') ? { elementDefinitions: parseElementLibrary({ format: 'nonlinear-elements', version: 1, elements: data.elements }) } : {}),
     solver: { tolerance: solver.tolerance, iterations: solver.iterations, starts: solver.starts,
       ...(typeof solver.complex === 'boolean' ? { complex: solver.complex } : {}),
+      ...(solver.mode === 'auto' || solver.mode === 'real' || solver.mode === 'complex' ? { mode: solver.mode } : {}),
     },
     sweep: sweep.mode === 'constrained' ? {
       mode: 'constrained', parameter: sweep.parameter as string, release: sweep.release as string,

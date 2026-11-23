@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clone, starter } from '../examples';
-import { compile, residual } from './expression';
+import { residual } from './expression';
 import { equationProgram } from './equations';
 import { sweep } from './solver';
 import { createWorkspace, loadWorkspace } from './workspace';

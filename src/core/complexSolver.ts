@@ -219,7 +219,7 @@ export function prepareComplex(config: Configuration, parameter?: number): Syste
       return pack(scope, allIndices);
     };
     return { unknowns: fullComponents, allUnknowns: fullComponents, equations: labels(allIndices), evaluate: evaluateFull,
-      direct, directContinuous: reconstruction.every(definition => continuousExpression(definition.expression.node)), valid, region: () => '' };
+      direct, directContinuous: reconstruction.every(definition => continuousExpression(definition.expression.node)), valid };
   }
 
   // Preserve the affine shortcut by solving its real block matrix directly.
@@ -245,12 +245,12 @@ export function prepareComplex(config: Configuration, parameter?: number): Syste
         const state = evaluateFull(solution);
         if (state.residuals.every((value, row) => Math.abs(value) <= config.solver.tolerance * Math.max(Number.MIN_VALUE, Math.abs(rhs[row]), ...matrix[row].map((coefficient, column) => Math.abs(coefficient * solution[column]))))) {
           return { unknowns: fullComponents, allUnknowns: fullComponents, equations: labels(allIndices), evaluate: evaluateFull,
-            direct: () => state, directContinuous: expressions.every(expression => continuousExpression(expression.node)), valid, region: () => '' };
+            direct: () => state, directContinuous: expressions.every(expression => continuousExpression(expression.node)), valid };
         }
       }
     }
   } catch { /* Unsupported or unsafe affine reduction retains the numerical path. */ }
   return { unknowns: reducedComponents, allUnknowns: fullComponents, equations: labels(reducedIndices),
-    evaluate: x => pack(scopeAt(x, reducedComponents, reconstruction), reducedIndices), valid, region: () => '' };
+    evaluate: x => pack(scopeAt(x, reducedComponents, reconstruction), reducedIndices), valid };
 }
 
