@@ -28,6 +28,7 @@ export default function ParameterSliders({ config, parameters, update, sliceView
     const sliceIndex = Math.min(Math.max(0, view?.index ?? 0), Math.max(0, values.length - 1));
     const sliceAvailable = slicesAvailable && values.length > 0;
     const hasSlider = Number.isFinite(variable.step) && variable.step! > 0 && Number.isFinite(variable.min) && Number.isFinite(variable.max) && variable.min! < variable.max!;
+    if (!hasSlider && !swept && !secondary) return null;
     const lower = slice ? slice.min : primary ? config.sweep.min : variable.min;
     const upper = slice ? slice.max : primary ? config.sweep.max : variable.max;
     return <div className={`slider-control ${swept ? 'swept' : ''} ${secondary ? 'slice-control' : ''}`} key={variable.name}>
@@ -43,7 +44,7 @@ export default function ParameterSliders({ config, parameters, update, sliceView
         disabled={swept || (secondary && !sliceAvailable)}
         title={secondary ? 'Select an exact precomputed slice. No additional calculation.' : undefined}
         onChange={event => secondary ? onSlice(variable.name, Number(event.target.value)) : update(index, Number(event.target.value))}/>
-      <div className="slider-extents"><span>{fmt(lower)}</span><span>{fmt(upper)}</span></div></>}
+      <div className="slider-extents"><span>{variable.sweepBounds?.min ?? fmt(lower)}</span><span>{variable.sweepBounds?.max ?? fmt(upper)}</span></div></>}
     </div>;
   })}</div>;
 }

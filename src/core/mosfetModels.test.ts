@@ -104,6 +104,25 @@ describe.each(processes)('$type Level 1 channel model', process => {
     expect(Math.abs(values(device(type, gate, source, source))['M1.id'])).toBe(0);
   });
 
+  it('reports channel derivatives at zero drain bias and in both conducting regions', () => {
+    const channel = (vgs: number, vds: number) => values(device(type, source + p * vgs, source + p * vds, source));
+    const on = Math.abs(vto) + .8, h = 1e-5;
+    for (const vds of [.2, 1.4]) {
+      const operating = channel(on, vds);
+      const gm = p * (channel(on + h, vds)['M1.id'] - channel(on - h, vds)['M1.id']) / (2 * h);
+      const gds = p * (channel(on, vds + h)['M1.id'] - channel(on, vds - h)['M1.id']) / (2 * h);
+      relative(operating['M1.gm'], gm, 1e-7);
+      relative(operating['M1.gds'], gds, 1e-7);
+    }
+    const zero = channel(on, 0);
+    expect(zero['M1.gm']).toBe(0);
+    relative(zero['M1.gds'], beta * .8);
+    const off = channel(0, .2);
+    expect(off['M1.gm']).toBe(0);
+    expect(off['M1.gds']).toBe(0);
+    expect(off['M1.gmb']).toBe(0);
+  });
+
   it('agrees in value and first slope across a body-shifted triode/saturation boundary', () => {
     const bias = .5, overdrive = .9, body = source - p * bias;
     const thresholdMagnitude = Math.abs(vto) + gamma * (Math.sqrt(phi + bias) - Math.sqrt(phi));

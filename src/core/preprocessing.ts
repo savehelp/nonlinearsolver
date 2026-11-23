@@ -1,7 +1,42 @@
 import { affineExpression } from './affine';
-import { expressionFromNode, type Expression } from './expression';
+import { expressionFromNode, residual, type Expression } from './expression';
+import { equationAssignment } from './equations';
 import type { Assignment, SubstitutionPlan } from './assignments';
 import type { Scope } from './types';
+
+/** Peel equations that determine a single downstream unknown. Their coefficients
+ * can depend on the operating point, so division waits until a root is found. */
+export function downstreamEquations(equations: string[], unknowns: string[], protectedNames: Set<string>) {
+  const remaining = new Map(equations.map((source, index) => [index, source]));
+  const expressions = equations.map(source => residual(source));
+  const outputs: { name: string; source: string; coefficient: Expression; constant: Expression }[] = [];
+  const names = new Set<string>();
+  const unknownSet = new Set(unknowns);
+  let implicit = false;
+  while (remaining.size > 1) {
+    const counts = new Map<string, number>();
+    for (const index of remaining.keys()) for (const name of expressions[index].variables) counts.set(name, (counts.get(name) ?? 0) + 1);
+    let removed = false;
+    for (const [index, source] of remaining) {
+      const candidates = unknowns.filter(name => counts.get(name) === 1 && !protectedNames.has(name) && expressions[index].variables.includes(name));
+      if (candidates.length !== 1) continue;
+      const name = candidates[0];
+      const form = affineExpression(expressions[index], [name], source);
+      const coefficient = form?.coefficients.get(name);
+      if (!form || !coefficient) continue;
+      const explicit = equationAssignment(source)?.name === name;
+      if (!explicit && !coefficient.variables.some(dependency => unknownSet.has(dependency))) continue;
+      outputs.push({ name, source, coefficient, constant: form.constant });
+      implicit ||= !explicit;
+      names.add(name);
+      remaining.delete(index);
+      removed = true;
+      break;
+    }
+    if (!removed) break;
+  }
+  return implicit ? { equations: [...remaining.values()], outputs: outputs.reverse(), names } : null;
+}
 
 /** Solve only a fully affine, full-rank system. Coefficients and constants must
  * depend exclusively on this point's fixed inputs. Row scaling and pivoting

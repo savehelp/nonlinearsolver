@@ -3,7 +3,7 @@ import type { ElementDefinition } from './elements';
 export type Scope = Record<string, number>;
 export interface Complex { re: number; im: number }
 export type ComplexScope = Record<string, number | Complex>;
-export interface Variable { name: string; kind: 'unknown' | 'parameter' | 'derived'; value: number; min?: number; max?: number; step?: number; expression?: string; scale?: number }
+export interface Variable { name: string; kind: 'unknown' | 'parameter' | 'derived'; value: number; min?: number; max?: number; step?: number; expression?: string; scale?: number; sweepBounds?: { min?: string; max?: string } }
 export interface Region { name: string; condition: string; color: string }
 export interface SecondarySweep { parameter: string; min: number; max: number; points: number; logarithmic: boolean; step?: number; startAt?: number }
 export interface EditorDocument { id: string; title: string; source: string }

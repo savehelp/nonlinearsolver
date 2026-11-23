@@ -10,12 +10,12 @@ import { MAX_PARAMETER_SAMPLES } from './sweepLimits';
 import { assignmentPlan, evaluateAssignments, substitutionPlan } from './assignments';
 import { equationProgram } from './equations';
 import { inferVariables } from './inference';
-import { affineRoot, affineSubstitutions } from './preprocessing';
+import { affineRoot, affineSubstitutions, downstreamEquations } from './preprocessing';
 import { formatSampleCount } from './sweepCounts';
 import type { SampleLookup } from './sampleReuse';
 const norm = (a: number[]) => Math.max(0, ...a.map(Math.abs));
 interface Evaluation { values: Scope; complexValues?: Record<string, Complex>; residuals: number[] }
-export interface System { unknowns: Variable[]; allUnknowns?: Variable[]; equations: string[]; evaluate: (x: number[]) => Evaluation; direct?: () => Evaluation; directContinuous?: boolean; valid: (values: Scope) => boolean; region: (values: Scope) => string }
+export interface System { unknowns: Variable[]; allUnknowns?: Variable[]; equations: string[]; evaluate: (x: number[]) => Evaluation; complete?: (values: Scope) => void; direct?: () => Evaluation; directContinuous?: boolean; valid: (values: Scope) => boolean; region: (values: Scope) => string }
 export function prepare(config: Configuration, parameter?: number): System {
   if (config.solver.complex) return prepareComplex(config, parameter);
   if (!config.axes.x.trim() || !config.axes.y.trim()) throw new Error('Add set_time_axis parameter and plot unknown commands.');
@@ -53,21 +53,32 @@ export function prepare(config: Configuration, parameter?: number): System {
   // projected numerical path, rather than losing an otherwise valid endpoint.
   const linearValues = linearCandidate && allUnknowns.every(variable => linearCandidate[variable.name] >= (variable.min ?? -Infinity) && linearCandidate[variable.name] <= (variable.max ?? Infinity)) ? linearCandidate : null;
   const bounded = new Set(allUnknowns.filter(variable => variable.min !== undefined || variable.max !== undefined).map(variable => variable.name));
-  const existing = assignments || linearValues ? null : substitutionPlan(originalEquations, allUnknowns.map(variable => variable.name), derived, fixed, bounded);
-  const isolated = !assignments && !linearValues && !derived.length ? affineSubstitutions(originalEquations, originalExpressions, allUnknowns.map(variable => variable.name), fixed, bounded) : null;
+  const downstream = !assignments && !linearValues && !derived.length ? downstreamEquations(originalEquations, allUnknowns.map(variable => variable.name), bounded) : null;
+  const activeEquations = downstream?.equations ?? originalEquations;
+  const activeUnknowns = allUnknowns.filter(variable => !downstream?.names.has(variable.name));
+  const activeNames = activeUnknowns.map(variable => variable.name);
+  const existing = assignments || linearValues ? null : substitutionPlan(activeEquations, activeNames, derived, fixed, bounded);
+  const isolated = !assignments && !linearValues && !derived.length ? affineSubstitutions(activeEquations, activeEquations.map(residual), activeNames, fixed, bounded) : null;
   // If eliminating every unknown failed the direct residual/conditioning
   // checks, retain Newton rather than retrying that candidate as a reduction.
-  const useIsolation = !!isolated && isolated.names.size < allUnknowns.length && isolated.names.size > (existing?.names.size ?? 0);
+  const useIsolation = !!isolated && isolated.names.size < activeUnknowns.length && isolated.names.size > (existing?.names.size ?? 0);
   const substitutions = useIsolation ? isolated : existing;
-  const unknowns = substitutions ? allUnknowns.filter(variable => !substitutions.names.has(variable.name)) : allUnknowns;
-  const equations = substitutions?.equations ?? originalEquations;
+  const unknowns = activeUnknowns.filter(variable => !substitutions?.names.has(variable.name));
+  const equations = substitutions?.equations ?? activeEquations;
   const expressions = equations === originalEquations ? originalExpressions : equations.map(source => originalExpressions[originalEquations.indexOf(source)]);
+  const required = new Set(expressions.flatMap(expression => expression.variables));
+  const deferred: typeof derived = [];
+  for (const assignment of [...substitutions?.ordered ?? []].reverse()) {
+    if (required.has(assignment.name)) assignment.expression.variables.forEach(name => required.add(name));
+    else deferred.unshift(assignment);
+  }
   const constantNames = new Set(Object.keys(fixed));
   const constantAssignments = substitutions?.ordered.filter(assignment => {
+    if (!required.has(assignment.name)) return false;
     if (!assignment.expression.variables.every(name => constantNames.has(name))) return false;
     constantNames.add(assignment.name); return true;
   }) ?? [];
-  const dynamicAssignments = substitutions?.ordered.filter(assignment => !constantNames.has(assignment.name)) ?? [];
+  const dynamicAssignments = substitutions?.ordered.filter(assignment => required.has(assignment.name) && !constantNames.has(assignment.name)) ?? [];
   let constants: Scope | undefined;
   function evaluate(x: number[]) {
     const values: Scope = Object.assign(Object.create(null), fixed); unknowns.forEach((v, i) => values[v.name] = x[i]);
@@ -92,6 +103,17 @@ export function prepare(config: Configuration, parameter?: number): System {
   }
   return {
     unknowns, allUnknowns, equations, evaluate,
+    complete: values => {
+      for (const assignment of deferred) values[assignment.name] = assignment.expression.evaluate(values);
+      for (const output of downstream?.outputs ?? []) {
+        const coefficient = output.coefficient.evaluate(values);
+        const value = -output.constant.evaluate(values) / coefficient;
+        if (!Number.isFinite(value)) throw new Error(`Cannot determine ${output.name} at this operating point: ${output.source}.`);
+        values[output.name] = value;
+        const error = Math.abs(residual(output.source).evaluate(values));
+        if (error > config.solver.tolerance * Math.max(1, Math.abs(coefficient * value))) throw new Error(`Could not satisfy ${output.source}.`);
+      }
+    },
     ...(assignments ? { direct: () => { const values = evaluateAssignments(assignments, fixed); return { values, residuals: expressions.map(expression => expression.evaluate(values)) }; }, directContinuous: assignments.continuous } : {}),
     ...(linearValues ? { direct: () => { const values: Scope = Object.assign(Object.create(null), linearValues); return { values, residuals: originalExpressions.map(expression => expression.evaluate(values)) }; }, directContinuous: originalEquations.every(source => !/\b(?:if|floor|ceil|sign)\s*\(|[?:<>=!&|]/.test(source.replace(/(?<![<>=!])=(?!=)/g, ''))) } : {}),
     valid: values => {
@@ -153,6 +175,7 @@ export function solve(system: System, guess: number[], options: Configuration['s
   const rowScale = initialJ.map((row, i) => Math.max(Math.abs(state.residuals[i]), ...row.map((d, k) => Math.abs(d * scales[k])), 1e-12));
   const merit = (f: number[]) => f.reduce((s, v, i) => s + (v / rowScale[i]) ** 2, 0);
   const acceptRoot = (iteration: number, derivatives?: number[][]): Root => {
+    system.complete?.(state.values);
     checkBounds(state.values);
     if (!system.valid(state.values)) throw new Error('Candidate root violates an inequality or branch validity condition.');
     return { ...state, norm: norm(state.residuals), iterations: iteration, jacobian: includeJacobian ? derivatives ?? jacobian(system, x) : [], region: system.region(state.values) };

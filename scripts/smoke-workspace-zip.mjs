@@ -219,7 +219,7 @@ try {
   assert(await source() === folderMain.tabs[0].source, 'Folder import changed source text');
   const folderPoints = await sampleValues();
   assert(folderPoints.length === 134 && folderPoints.every(point => point['M1.VTO'] === .95 && point['M1.VTH'] === .95), 'Folder import did not apply its separate NMOS JSON');
-  assert(await evaluate(`Number(document.querySelector('input[aria-label="M1.VTO fixed value"]')?.value) === .95`), 'Folder import did not update the model parameter control');
+  assert(await evaluate(`!document.querySelector('.parameter-controls input[aria-label="M1.VTO fixed value"]')`), 'Fixed model parameter without slider settings appeared in Parameters');
   const third = await exportArchive();
   const thirdMain = parse(third.files['workspace.json']);
   const thirdNmos = thirdMain.elementFiles.map(path => parse(third.files[path]).elements[0]).find(element => element.name === 'NMOSFET');

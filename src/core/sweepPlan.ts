@@ -2,6 +2,7 @@ import type { Configuration, Variable } from './types';
 import { MAX_PARAMETER_SAMPLES } from './sweepLimits';
 import { setSliceSweeps, sliceSweeps } from './variables';
 import { formatSampleCount } from './sweepCounts';
+import { compile } from './expression';
 
 export interface SweepPlan { values: number[]; order: number[]; startIndex: number }
 export { MAX_PARAMETER_SAMPLES } from './sweepLimits';
@@ -92,4 +93,13 @@ export function normalizeSweep(config: Configuration): Configuration {
     return secondary;
   }));
   return normalized;
+}
+export function resolveSweepBounds(variable: Variable, values: Record<string, number>): Variable {
+  if (!variable.sweepBounds) return variable;
+  const resolved = { ...variable };
+  for (const key of ['min', 'max'] as const) {
+    const source = variable.sweepBounds[key];
+    if (source !== undefined) resolved[key] = compile(source).evaluate(values);
+  }
+  return resolved;
 }

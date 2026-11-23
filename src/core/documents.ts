@@ -1,6 +1,8 @@
 import { applyDeclarations, formatDeclarations, parseDeclarations, type DeclarationKind } from './declarations';
 import { compile, residual } from './expression';
-import { equationProgram } from './equations';
+import { equationAssignment, equationProgram } from './equations';
+import { numericExpression } from './numeric';
+import { resolveSweepBounds } from './sweepPlan';
 import { inferVariables } from './inference';
 import { plotArguments, plotCurves, yExpressions } from './axes';
 import { evaluateTransitionLines, MAX_TRANSITION_LINES, TransitionExpressionError } from './transitions';
@@ -111,7 +113,7 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
           elements.push({ type: match[1], name: match[2], location: describe(document, part.line, '') });
         }
         else if (part.kind === 'unknown' || part.kind === 'parameter') {
-          const parsed = parseDeclarations(part.clean, part.kind), variable = parsed.variables[0];
+          const parsed = parseDeclarations(part.clean, part.kind, true), variable = parsed.variables[0];
           const previous = declarations.get(variable.name);
           if (previous) throw new Error(`“${variable.name}” is already declared in “${previous.document.title}”, line ${previous.line}.`);
           declarations.set(variable.name, { document, line: part.line });
@@ -126,6 +128,18 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
     }
   }
   const expanded = expandElements(config, elements, usages, [...unknowns, ...parameters]);
+  const deviceDefaults = new Map(expanded.variables.filter(variable => variable.kind === 'parameter').map(variable => [variable.name, variable]));
+  for (let index = 0; index < equations.length; index++) {
+    const assignment = equationAssignment(equations[index].slice(0, -1));
+    const parameter = assignment && deviceDefaults.get(assignment.name);
+    if (!assignment || !parameter || compile(assignment.source).variables.length) continue;
+    parameter.value = numericExpression(assignment.source);
+    delete parameter.min;
+    delete parameter.max;
+    delete parameter.step;
+    deviceDefaults.delete(parameter.name);
+    equations.splice(index--, 1);
+  }
   equations.push(...expanded.equations);
   unknowns.push(...expanded.variables.filter(variable => variable.kind === 'unknown'));
   parameters.push(...expanded.variables.filter(variable => variable.kind === 'parameter'));
@@ -141,7 +155,31 @@ export function compileDocuments(config: Configuration, documents: EditorDocumen
   const timeName = timeCommand && /^set_time_axis\s+([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)?)$/.exec(timeCommand.part.clean)?.[1];
   if (next.sweep.mode === 'free' && timeName && swept.includes(timeName)) next.sweep.parameter = timeName;
   applyDeclarations(next, 'unknown', { variables: unknowns, swept: [] });
-  try { applyDeclarations(next, 'parameter', { variables: parameters, swept }); }
+  try {
+    const main = next.sweep.mode === 'free' ? (swept.includes(next.sweep.parameter) ? next.sweep.parameter : swept[0]) : undefined;
+    const inputs = new Map(parameters.filter(variable => next.sweep.mode !== 'constrained' || variable.name !== next.sweep.release).map(variable => [variable.name, variable]));
+    const values = Object.fromEntries([...inputs].map(([name, variable]) => [name, variable.value]));
+    const visiting = new Set<string>(), checked = new Set<string>();
+    const dependencies = new Map(parameters.map(variable => [variable.name, Object.values(variable.sweepBounds ?? {}).flatMap(source => compile(source).variables)]));
+    function visit(name: string): void {
+      if (visiting.has(name)) throw new Error(`${name}: circular sweep bound dependency.`);
+      if (checked.has(name)) return;
+      visiting.add(name);
+      for (const dependency of dependencies.get(name) ?? []) {
+        if (!inputs.has(dependency)) throw new Error(`${name}: sweep bounds can only reference parameters. “${dependency}” is not a fixed or swept parameter.`);
+        visit(dependency);
+      }
+      visiting.delete(name);
+      checked.add(name);
+    }
+    for (const variable of parameters) visit(variable.name);
+    for (const variable of parameters) {
+      if (variable.name !== main && dependencies.get(variable.name)?.some(name => swept.includes(name))) {
+        throw new Error(`${variable.name}: only the time-axis sweep can use another swept parameter in its bounds.`);
+      }
+    }
+    applyDeclarations(next, 'parameter', { variables: parameters.map(variable => resolveSweepBounds(variable, values)), swept });
+  }
   catch (error) {
     // Sweep count errors name their parameter. Locate its declaration as well.
     const message = (error as Error).message;
@@ -236,7 +274,7 @@ export function syncDocumentVariables(config: Configuration, previous?: Configur
     for (const part of parts) {
       if (part.kind !== 'unknown' && part.kind !== 'parameter') continue;
       let parsed: Variable;
-      try { parsed = parseDeclarations(part.clean, part.kind).variables[0]; } catch { continue; }
+      try { parsed = parseDeclarations(part.clean, part.kind, true).variables[0]; } catch { continue; }
       represented.add(parsed.name);
       const variable = byName.get(parsed.name);
       if (!variable || variable.kind !== part.kind) continue;
@@ -252,6 +290,7 @@ export function syncDocumentVariables(config: Configuration, previous?: Configur
       if (!oldOptions.length && values.length === 1 && values[0] === 0) values.length = 0;
       for (let index = 0; index < oldOptions.length; index++) {
         const token = oldOptions[index], key = keys[index];
+        if ((key === 'min' || key === 'max') && parsed.sweepBounds?.[key] !== undefined) continue;
         if (index >= values.length) edits.push({ start: part.start + token.start, end: part.start + token.end, text: '' });
         else if (parsed[key] !== values[index]) edits.push({ start: part.start + token.start, end: part.start + token.end, text: String(values[index]) });
       }

@@ -1,4 +1,5 @@
 import { numericExpression } from './numeric';
+import { compile } from './expression';
 import { MAX_PARAMETER_SAMPLES, MAX_SECONDARY_SLICES } from './sweepLimits';
 import type { Configuration, SecondarySweep, Variable } from './types';
 import { parameterSweepRole, setSliceSweeps } from './variables';
@@ -42,7 +43,7 @@ function statements(source: string): string[] {
   return result;
 }
 
-export function parseDeclarations(source: string, kind: DeclarationKind): ParsedDeclarations {
+export function parseDeclarations(source: string, kind: DeclarationKind, allowSweepBounds = false): ParsedDeclarations {
   const variables: Variable[] = [], swept: string[] = [], names = new Set<string>();
   for (const [index, statement] of statements(source).entries()) {
     try {
@@ -60,8 +61,16 @@ export function parseDeclarations(source: string, kind: DeclarationKind): Parsed
         ? 'Use unknown name [initial guess].'
         : 'Use parameter name [value [step [minimum [maximum]]]] [sweep]. Wrap numeric expressions containing spaces in parentheses.');
       if (sweep && tokens.length !== 4) throw new Error('A swept parameter needs value, step, minimum and maximum before sweep.');
-      const values = tokens.map(numericExpression);
+      const sweepBounds: NonNullable<Variable['sweepBounds']> = {};
+      const values = tokens.map((token, index) => {
+        if (allowSweepBounds && sweep && index >= 2 && compile(token).variables.length) {
+          sweepBounds[index === 2 ? 'min' : 'max'] = token;
+          return undefined;
+        }
+        return numericExpression(token);
+      });
       const variable: Variable = { name, kind, value: values[0] ?? 0 };
+      if (Object.keys(sweepBounds).length) variable.sweepBounds = sweepBounds;
       if (kind === 'parameter') {
         if (values.length > 1) variable.step = values[1];
         if (values.length > 2) variable.min = values[2];
@@ -83,10 +92,10 @@ export function parseDeclarations(source: string, kind: DeclarationKind): Parsed
 
 export function formatDeclarations(config: Configuration, kind: DeclarationKind): string {
   return config.variables.filter(variable => variable.kind === kind).map(variable => {
-    const values = [variable.value];
+    const values: (number | string)[] = [variable.value];
     if (kind === 'parameter') {
       // Options are positional: do not invent absent slider fields.
-      for (const value of [variable.step, variable.min, variable.max]) {
+      for (const value of [variable.step, variable.sweepBounds?.min ?? variable.min, variable.sweepBounds?.max ?? variable.max]) {
         if (value === undefined) break;
         values.push(value);
       }

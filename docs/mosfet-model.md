@@ -102,6 +102,12 @@ At equal terminal voltages the current is zero. In NMOS operation, `d > s` produ
 
 For KCL with currents leaving each node, the device contributes `+M1.id` at its drain node and `-M1.id` at its source node. These references remain fixed when the internal source/drain roles swap.
 
+PMOS also exposes `isd = -id`, a signed current referenced from its named source pin to its named drain pin. For example, use `M3.isd = M1.id;` to balance a PMOS load against an NMOS drain current.
+
+Both models expose `gm`, `gds`, and `gmb` in siemens. These are intrinsic channel derivatives in the coordinates of the active source and drain. They use the triode or saturation expression as appropriate and are zero in cutoff. At zero drain bias, a conducting channel has `gm = 0` and `gds = K*vov`. The output conductance includes both the triode slope and the channel-length modulation contribution. [Berkeley/ngspice MOS1 derivatives](https://raw.githubusercontent.com/ngspice/ngspice/master/src/spicelib/devices/mos1/mos1load.c)
+
+Use conductances to compute the gain without forming separate output resistances, for example `A = M1.gm/(M1.gds + M3.gds);`. If the total conductance can be zero, put the division in the plot expression to leave only that curve undefined at those points. A separate equality still has to be satisfied for the point to be a root.
+
 Substitution at \(v_{DS}=u\) gives \(I_{ch}=\beta u^2(1+\lambda u)/2\) on both sides. Differentiation gives the same drain-voltage slope, \(\beta\lambda u^2/2\), and the same gate-overdrive slope. Thus current and first derivatives agree; second derivatives can differ. A smoothing blend is unnecessary for boundary continuity.
 
 The signed current and its first voltage derivatives also match when the conduction-terminal voltages cross. Near \(d=s\), with local overdrive \(u_0\),

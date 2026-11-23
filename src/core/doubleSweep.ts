@@ -1,6 +1,6 @@
 import type { Configuration, Point, Scope, SweepResult } from './types';
 import type { SweepSample } from './solver';
-import { parameterSampleCount, parameterSweepPlan, validateParameterSampleCount, type SweepPlan } from './sweepPlan';
+import { parameterSampleCount, parameterSweepPlan, resolveSweepBounds, validateParameterSampleCount, type SweepPlan } from './sweepPlan';
 import { DEFAULT_SWEEP_BYTES, MAX_DOUBLE_SWEEP_SAMPLES, MAX_PARAMETER_SAMPLES, MAX_SECONDARY_SLICES } from './sweepLimits';
 import { sliceSweeps } from './variables';
 import { formatSampleCount, gridLimitMessage, sampleCountExceeds, sampleProduct } from './sweepCounts';
@@ -13,6 +13,7 @@ export interface MultiSweepPlan {
   strides: number[];
   totalSlices: number;
   mainPoints: number;
+  totalSamples: number;
   startIndices: number[];
   startIndex: number;
   indicesAt(index: number): number[];
@@ -47,7 +48,8 @@ function mainSampleCount(config: Configuration): number {
 
 /** Build only the per-parameter plans. Combinations are indexed and visited lazily. */
 export function multiSweepPlan(config: Configuration): MultiSweepPlan {
-  const mainPoints = mainSampleCount(config), selected = sliceSweeps(config);
+  let mainPoints = mainSampleCount(config);
+  const selected = sliceSweeps(config);
   const names = new Set([config.sweep.parameter]);
   if (config.sweep.mode === 'constrained') names.add(config.sweep.release);
   const requested = selected.map(secondary => {
@@ -67,7 +69,9 @@ export function multiSweepPlan(config: Configuration): MultiSweepPlan {
     }
     return { secondary, parameter, count };
   });
-  const axes = [{ name: config.sweep.parameter, count: mainPoints }, ...requested.map(({ secondary, count }) => ({ name: secondary.parameter, count }))];
+  const main = config.variables.find(variable => variable.name === config.sweep.parameter);
+  const dependent = !!main?.sweepBounds && config.sweep.mode === 'free';
+  const axes = [{ name: config.sweep.parameter, count: dependent ? 1 : mainPoints }, ...requested.map(({ secondary, count }) => ({ name: secondary.parameter, count }))];
   if (sampleCountExceeds(sampleProduct(axes.map(axis => axis.count)), MAX_DOUBLE_SWEEP_SAMPLES)) throw new Error(gridLimitMessage(axes, MAX_DOUBLE_SWEEP_SAMPLES));
   const dimensions: MultiSweepPlan['dimensions'] = [], strides: number[] = [];
   let totalSlices = 1;
@@ -93,9 +97,25 @@ export function multiSweepPlan(config: Configuration): MultiSweepPlan {
     return indices.reduce((sum, index, dimension) => sum + index * strides[dimension], 0);
   };
   const valuesAt = (index: number): Scope => Object.fromEntries(indicesAt(index).map((sampleIndex, dimension) => [dimensions[dimension].parameter, dimensions[dimension].plan.values[sampleIndex]]));
+  let totalSamples = dependent ? 0 : mainPoints * totalSlices;
+  if (dependent) {
+    mainPoints = 0;
+    for (let index = 0; index < totalSlices; index++) {
+      const values = valuesAt(index);
+      let count: number;
+      try { count = mainSampleCount(configForCombination(config, values)); }
+      catch (error) {
+        const slice = Object.entries(values).map(([name, value]) => `${name} = ${value}`).join(', ');
+        throw new Error(`${(error as Error).message}${slice ? ` (slice: ${slice})` : ''}`);
+      }
+      mainPoints = Math.max(mainPoints, count);
+      totalSamples += count;
+      if (totalSamples > MAX_DOUBLE_SWEEP_SAMPLES) throw new Error(`Dependent main sweep exceeds the ${MAX_DOUBLE_SWEEP_SAMPLES.toLocaleString('en-US')} sample limit across slices.`);
+    }
+  }
   const order: Iterable<number> = dimensions.length === 1 ? dimensions[0].plan.order
     : { [Symbol.iterator]: () => centeredCombinations(lengths, strides, startIndices, startIndex) };
-  return { dimensions, strides, totalSlices, mainPoints, startIndices, startIndex, indicesAt, indexOf, valuesAt, order };
+  return { dimensions, strides, totalSlices, mainPoints, totalSamples, startIndices, startIndex, indicesAt, indexOf, valuesAt, order };
 }
 
 interface FrontierEntry { index: number; distance: number; sequence: number }
@@ -175,8 +195,17 @@ function legacySecondaryPlan(secondary: NonNullable<Configuration['sweep']['seco
 export function configForCombination(config: Configuration, values: Scope): Configuration {
   const selected = new Set(sliceSweeps(config).map(sweep => sweep.parameter));
   const { secondary: _secondary, additional: _additional, ...sweep } = config.sweep;
-  return { ...config, sweep, variables: config.variables.map(variable => selected.has(variable.name) && Object.hasOwn(values, variable.name)
-    ? { ...variable, value: values[variable.name] } : variable) };
+  let variables = config.variables.map(variable => selected.has(variable.name) && Object.hasOwn(values, variable.name)
+    ? { ...variable, value: values[variable.name] } : variable);
+  const main = variables.find(variable => variable.name === sweep.parameter);
+  if (sweep.mode === 'free' && main?.sweepBounds) {
+    const resolved = resolveSweepBounds(main, Object.fromEntries(variables.filter(variable => variable.kind === 'parameter').map(variable => [variable.name, variable.value])));
+    sweep.min = resolved.min!;
+    sweep.max = resolved.max!;
+    sweep.points = parameterSampleCount(resolved);
+    variables = variables.map(variable => variable === main ? resolved : variable);
+  }
+  return { ...config, sweep, variables };
 }
 
 /** Conservative estimate, including object/property/array overhead and strings.

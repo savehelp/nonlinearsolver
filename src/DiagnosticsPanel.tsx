@@ -5,6 +5,7 @@ import { sliceSweeps } from './core/variables';
 import { formatSampleCount, gridLimitMessage, sampleCountExceeds, sampleProduct, type SampleCount } from './core/sweepCounts';
 import { DEFAULT_SWEEP_BYTES, MAX_DOUBLE_SWEEP_SAMPLES, MAX_PARAMETER_SAMPLES, MAX_SECONDARY_SLICES } from './core/sweepLimits';
 import { formatValue } from './format';
+import { multiSweepPlan } from './core/doubleSweep';
 
 interface GridProgress { finished: number; failed: number; total: SampleCount; complete: boolean; elapsed: number }
 interface Props {
@@ -31,11 +32,20 @@ export default function DiagnosticsPanel({ config, result, busy, resultComplete,
       start: axis.startAt ?? (index === 0 && config.sweep.mode === 'constrained' ? axis.min : config.variables.find(variable => variable.name === axis.parameter)?.value),
       limit: index === 0 ? MAX_PARAMETER_SAMPLES : MAX_SECONDARY_SLICES,
     })).filter(axis => axis.parameter);
+    const dependent = additional.length > 0 && config.variables.some(variable => variable.name === config.sweep.parameter && variable.sweepBounds);
+    if (dependent) {
+      try {
+        const gridPlan = multiSweepPlan(config);
+        return { axes, total: gridPlan.totalSamples, slices: gridPlan.totalSlices, dependent, issue: undefined, exceeds: false };
+      } catch (error) {
+        return { axes, total: 0, slices: sampleProduct(additional.map(axis => axis.points)), dependent, issue: (error as Error).message, exceeds: true };
+      }
+    }
     const total = axes.length ? sampleProduct(axes.map(axis => axis.points)) : 0;
     const slices = sampleProduct(additional.map(axis => axis.points));
     const issue = sampleCountExceeds(total, MAX_DOUBLE_SWEEP_SAMPLES)
       ? gridLimitMessage(axes.map(axis => ({ name: axis.parameter, count: axis.points })), MAX_DOUBLE_SWEEP_SAMPLES) : undefined;
-    return { axes, total, slices, issue, exceeds: sampleCountExceeds(total, MAX_DOUBLE_SWEEP_SAMPLES) || axes.some(axis => axis.points > axis.limit) };
+    return { axes, total, slices, issue, dependent, exceeds: sampleCountExceeds(total, MAX_DOUBLE_SWEEP_SAMPLES) || axes.some(axis => axis.points > axis.limit) };
   }, [config]);
   // Only the displayed curve is inspected, once per immutable result update.
   // Diagnostics never walk the grid's retained slice map or estimate its heap.
@@ -70,7 +80,7 @@ export default function DiagnosticsPanel({ config, result, busy, resultComplete,
         <td>{axis.logarithmic ? 'Log' : axis.step === undefined ? 'Linear' : formatValue(axis.step)}</td>
         <td className={axis.points > axis.limit ? 'diagnostic-warning' : undefined}>{formatSampleCount(axis.points)}</td>
       </tr>)}</tbody></table></div> : <p className="diagnostic-empty">No sweep selected.</p>}
-      {plan.axes.length > 1 && <p className="diagnostic-context">{formatSampleCount(plan.slices)} combinations × {formatSampleCount(config.sweep.points)} main samples</p>}
+      {plan.axes.length > 1 && <p className="diagnostic-context">{formatSampleCount(plan.slices)} combinations{plan.dependent ? ' with main sweep bounds evaluated per slice. The table shows the starting slice.' : ` × ${formatSampleCount(config.sweep.points)} main samples`}</p>}
       <details className="diagnostic-details" open={plan.exceeds || undefined}><summary>Limits</summary><dl className="diagnostic-list">
         <div><dt>Main axis</dt><dd>{formatSampleCount(MAX_PARAMETER_SAMPLES)} samples</dd></div>
         <div><dt>Each slice axis</dt><dd>{formatSampleCount(MAX_SECONDARY_SLICES)} samples</dd></div>
